@@ -5,6 +5,7 @@ export interface CharacterMeta {
   class: string;
   archetype: string;
   race: string;
+  subrace?: string;
   background: string;
   level: number;
   origin: string;
@@ -37,32 +38,16 @@ export interface Saves {
   prof_int: boolean;
   prof_wis: boolean;
   prof_cha: boolean;
+  [key: string]: boolean; // Index signature for dynamic access
 }
 
+// v12 Skill format: [Proficiency(bool), Expertise(bool), Bonus(number)]
+export type SkillTuple = [boolean, boolean, number];
+
 export interface Skills {
-  athletics: number;
-  acrobatics: number;
-  sleight: number;
-  stealth: number;
-  history: number;
-  void: number;
-  nature: number;
-  investigation: number;
-  programming: number;
-  tech: number;
-  fund_science: number;
-  weapons: number;
-  religion: number;
-  perception: number;
-  survival: number;
-  medicine: number;
-  insight: number;
-  animal: number;
-  performance: number;
-  intimidation: number;
-  deception: number;
-  persuasion: number;
-  bonuses: Record<string, number>;
+  // Key is skill code (e.g., 'athletics'), value is the tuple
+  data: Record<string, SkillTuple>; 
+  bonuses: Record<string, number>; // Legacy or extra bonuses
 }
 
 export interface Item {
@@ -115,8 +100,7 @@ export interface Psych {
 export interface Psionics {
   base_attr: 'int' | 'wis' | 'cha';
   caster_type: '1' | '0.5' | '0.33';
-  class_lvl: number;
-  type: string;
+  class_lvl: number; // Now calculated, but stored for compatibility/caching if needed
   mod_points: number;
   points_curr: number;
   spells: Spell[];

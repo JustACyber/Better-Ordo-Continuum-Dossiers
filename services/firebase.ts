@@ -17,7 +17,6 @@ import {
 } from 'firebase/auth';
 import { Character } from '../types';
 
-// Replace with your actual Firebase config or use environment variables
 const firebaseConfig = {
   apiKey: "AIzaSyB1gqid0rb9K-z0lKNTpyKiFpOKUl7ffrM",
   authDomain: "ordo-continuum-dossiers.firebaseapp.com",
@@ -32,48 +31,72 @@ const app = initializeApp(firebaseConfig);
 const auth: Auth = getAuth(app);
 const db: Firestore = getFirestore(app);
 
-const APP_ID = 'ordo-continuum-legacy-v1';
-const LOCAL_STORAGE_KEY = 'ordo_local_storage_db';
+const APP_ID = 'ordo-continuum-v12';
 
-// --- MOCK / OFFLINE MODE IMPLEMENTATION ---
+// DB Context Types
+export type DbContext = 'empire' | 'resistance';
+
+// Paths
+const EMPIRE_PATH = 'public/data/protocols';
+const RESISTANCE_PATH = 'resistance/data/protocols';
+
+// Local Storage Keys
+const LS_KEY_EMPIRE = 'ordo_local_storage_db_v12';
+const LS_KEY_RESISTANCE = 'ordo_local_storage_res_v1';
+
 let isOfflineMode = false;
+// Listeners now need to track which context they belong to, or we simply trigger all for simplicity in this scale
 const listeners: Set<() => void> = new Set();
 
-const getLocalDB = (): Record<string, Character> => {
+// Helper to get collection path based on context
+const getCollectionPath = (ctx: DbContext) => {
+    const subPath = ctx === 'resistance' ? RESISTANCE_PATH : EMPIRE_PATH;
+    // Constructs: artifacts/ordo-continuum-v12/public/data/protocols OR artifacts/ordo-continuum-v12/resistance/data/protocols
+    // Note: Firestore needs alternating collection/doc/collection. 
+    // Structure: collection('artifacts') -> doc(APP_ID) -> collection('public' or 'resistance') -> doc('data') -> collection('protocols')
+    // We need to be careful with the path construction.
+    // Let's use a path string for internal logic consistency
+    if (ctx === 'resistance') {
+        return ['artifacts', APP_ID, 'resistance', 'data', 'protocols'];
+    }
+    return ['artifacts', APP_ID, 'public', 'data', 'protocols'];
+};
+
+const getLsKey = (ctx: DbContext) => ctx === 'resistance' ? LS_KEY_RESISTANCE : LS_KEY_EMPIRE;
+
+const getLocalDB = (ctx: DbContext): Record<string, Character> => {
   try {
-    return JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '{}');
+    return JSON.parse(localStorage.getItem(getLsKey(ctx)) || '{}');
   } catch {
     return {};
   }
 };
 
-const setLocalDB = (data: Record<string, Character>) => {
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+const setLocalDB = (ctx: DbContext, data: Record<string, Character>) => {
+  localStorage.setItem(getLsKey(ctx), JSON.stringify(data));
   listeners.forEach(l => l());
 };
 
 export const OrdoService = {
   auth,
   db,
+  isOffline: () => isOfflineMode,
   
   init: (): Promise<User | { uid: string }> => {
     return new Promise((resolve) => {
-      // 1. Try to listen for auth state
       const unsub = onAuthStateChanged(auth, 
         (user) => {
           if (user) {
             unsub();
             resolve(user);
           } else {
-            // 2. If no user, try to sign in
             signInAnonymously(auth)
               .then((uc) => {
                 unsub();
                 resolve(uc.user);
               })
               .catch((err) => {
-                // 3. If sign in fails (e.g. referer blocked or bad key), switch to offline
-                console.warn("Firebase connection failed. Switching to Offline Mode (LocalStorage).", err);
+                console.warn("Firebase connection failed. Offline Mode.", err);
                 isOfflineMode = true;
                 unsub();
                 resolve({ uid: 'offline-user' });
@@ -81,8 +104,7 @@ export const OrdoService = {
           }
         },
         (error) => {
-           // Auth state change error (rare but possible)
-           console.warn("Firebase Auth Error. Switching to Offline Mode.", error);
+           console.warn("Firebase Auth Error. Offline Mode.", error);
            isOfflineMode = true;
            resolve({ uid: 'offline-user' });
         }
@@ -90,15 +112,19 @@ export const OrdoService = {
     });
   },
 
-  subscribeAll: (callback: (data: Record<string, Character>) => void) => {
+  // Added context argument, default to 'empire' for backward compatibility
+  subscribeAll: (callback: (data: Record<string, Character>) => void, context: DbContext = 'empire') => {
     if (isOfflineMode) {
-      const handler = () => callback(getLocalDB());
+      const handler = () => callback(getLocalDB(context));
       listeners.add(handler);
-      handler(); // Immediate call
+      handler(); 
       return () => { listeners.delete(handler); };
     }
 
-    const collRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'protocols');
+    const pathSegments = getCollectionPath(context);
+    // @ts-ignore - spread arguments for collection
+    const collRef = collection(db, ...pathSegments);
+    
     return onSnapshot(collRef, (snapshot) => {
       const data: Record<string, Character> = {};
       snapshot.forEach((docSnap) => {
@@ -106,15 +132,16 @@ export const OrdoService = {
       });
       callback(data);
     }, (err) => {
-        console.error("Firebase Snapshot Error (All)", err);
-        // Optional: could fallback here too, but init usually catches it
+        console.warn(`Firebase Read Error (${context}). Fallback to local.`, err);
+        isOfflineMode = true;
+        callback(getLocalDB(context));
     });
   },
 
-  subscribeOne: (id: string, callback: (data: Character | null) => void) => {
+  subscribeOne: (id: string, callback: (data: Character | null) => void, context: DbContext = 'empire') => {
     if (isOfflineMode) {
       const handler = () => {
-        const db = getLocalDB();
+        const db = getLocalDB(context);
         callback(db[id] || null);
       };
       listeners.add(handler);
@@ -122,7 +149,10 @@ export const OrdoService = {
       return () => { listeners.delete(handler); };
     }
 
-    const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'protocols', id);
+    const pathSegments = getCollectionPath(context);
+    // @ts-ignore
+    const docRef = doc(db, ...pathSegments, id);
+
     return onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         callback(docSnap.data() as Character);
@@ -130,27 +160,27 @@ export const OrdoService = {
         callback(null);
       }
     }, (err) => {
-        console.error("Firebase Snapshot Error (One)", err);
+        console.warn(`Firebase Read Error One (${context}). Fallback to local.`, err);
+        isOfflineMode = true;
+        const db = getLocalDB(context);
+        callback(db[id] || null);
     });
   },
 
-  create: async (name: string): Promise<string> => {
+  create: async (name: string, context: DbContext = 'empire'): Promise<string> => {
     const id = name.toLowerCase().replace(/\s+/g, '_') + "_" + Math.floor(Math.random() * 10000);
     
     const newChar: Character = {
         id: id,
         meta: {
             name: name, rank: "Рекрут", image: "",
-            class: "", archetype: "", race: "", background: "", level: 1,
+            class: "", archetype: "", race: "", subrace: "", background: "", level: 1,
             origin: "", age: "", job: "", clearance: "", comm: ""
         },
         stats: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10, hp_curr: 0, hp_max: 0, hp_temp: 0, ac: 10, speed_mod: 0, shield_curr: 0, shield_max: 0 },
         saves: { prof_str: false, prof_dex: false, prof_con: false, prof_int: false, prof_wis: false, prof_cha: false },
         skills: { 
-            athletics: 0, acrobatics: 0, sleight: 0, stealth: 0,
-            history: 0, void: 0, nature: 0, investigation: 0, programming: 0, tech: 0, fund_science: 0, weapons: 0, religion: 0,
-            perception: 0, survival: 0, medicine: 0, insight: 0, animal: 0,
-            performance: 0, intimidation: 0, deception: 0, persuasion: 0,
+            data: {}, 
             bonuses: {} 
         },
         combat: { weapons: [], inventory: [] },
@@ -158,46 +188,77 @@ export const OrdoService = {
         profs: { langs: [], tools: [], armory: [] },
         money: { u: 0, k: 0, m: 0, g: 0 },
         psych: { size: "Средний", age: "", height: "", weight: "", trait: "", ideal: "", bond: "", flaw: "", analysis: "" },
-        psionics: { base_attr: "int", caster_type: "1", class_lvl: 1, type: "learned", mod_points: 0, points_curr: 0, spells: [] },
+        psionics: { base_attr: "int", caster_type: "1", class_lvl: 2, mod_points: 0, points_curr: 0, spells: [] },
         universalis: { save_base: 8, save_attr: "int", custom_table: [], counters: [] },
         locks: { identity: false, biometrics: false, skills: false, equipment: false, psych: false, psionics: false, universalis: false }
     };
 
     if (isOfflineMode) {
-      const db = getLocalDB();
+      const db = getLocalDB(context);
       db[id] = newChar;
-      setLocalDB(db);
+      setLocalDB(context, db);
       return id;
     }
 
-    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'protocols', id), newChar);
+    try {
+        const pathSegments = getCollectionPath(context);
+        // @ts-ignore
+        await setDoc(doc(db, ...pathSegments, id), newChar);
+    } catch (e) {
+        console.warn("Create failed, offline mode", e);
+        isOfflineMode = true;
+        const localDb = getLocalDB(context);
+        localDb[id] = newChar;
+        setLocalDB(context, localDb);
+    }
     return id;
   },
 
-  update: async (id: string, data: Partial<Character>) => {
+  update: async (id: string, data: Partial<Character>, context: DbContext = 'empire') => {
     const cleanData = JSON.parse(JSON.stringify(data));
     
     if (isOfflineMode) {
-      const db = getLocalDB();
+      const db = getLocalDB(context);
       if (db[id]) {
-        // App sends full object on update, so spread is safe
         db[id] = { ...db[id], ...cleanData };
-        setLocalDB(db);
+        setLocalDB(context, db);
       }
       return;
     }
 
-    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'protocols', id), cleanData, { merge: true });
+    try {
+      const pathSegments = getCollectionPath(context);
+      // @ts-ignore
+      await setDoc(doc(db, ...pathSegments, id), cleanData, { merge: true });
+    } catch (e) {
+      console.warn("Update failed, offline mode", e);
+      isOfflineMode = true;
+      const db = getLocalDB(context);
+      if (db[id]) {
+         db[id] = { ...db[id], ...cleanData };
+         setLocalDB(context, db);
+      }
+    }
   },
 
-  delete: async (id: string) => {
+  delete: async (id: string, context: DbContext = 'empire') => {
     if (isOfflineMode) {
-      const db = getLocalDB();
+      const db = getLocalDB(context);
       delete db[id];
-      setLocalDB(db);
+      setLocalDB(context, db);
       return;
     }
 
-    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'protocols', id));
+    try {
+        const pathSegments = getCollectionPath(context);
+        // @ts-ignore
+        await deleteDoc(doc(db, ...pathSegments, id));
+    } catch (e) {
+        console.warn("Delete failed, offline mode", e);
+        isOfflineMode = true;
+        const db = getLocalDB(context);
+        delete db[id];
+        setLocalDB(context, db);
+    }
   }
 };

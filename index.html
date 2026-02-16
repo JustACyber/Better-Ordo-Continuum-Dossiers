@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ORDO CONTINUUM</title>
+    <title>ENTROPY</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Orbitron:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -22,11 +23,19 @@
                 'crimson-dark': '#660000',
                 border: '#9d8033',
                 input: 'rgba(0, 0, 0, 0.4)'
+              },
+              res: {
+                green: '#38ff12',
+                dim: '#1a5c0b',
+                bg: '#0a0a0a',
+                alert: '#ff3333'
               }
             },
             fontFamily: {
               header: ['Cinzel', 'serif'],
-              body: ['Cormorant Garamond', 'serif']
+              body: ['Cormorant Garamond', 'serif'],
+              mono: ['Share Tech Mono', 'monospace'],
+              tech: ['Orbitron', 'sans-serif']
             },
             backgroundImage: {
               'ordo-pattern': "radial-gradient(circle at center, rgba(102, 0, 0, 0.05) 0%, transparent 70%), url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4af37' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")"
@@ -45,7 +54,6 @@
       }
     </script>
     <style>
-      /* Custom scrollbar to match the aesthetic */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -67,12 +75,17 @@
   <script type="importmap">
 {
   "imports": {
-    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0",
-    "firebase/": "https://esm.sh/firebase@^12.9.0/",
-    "react/": "https://esm.sh/react@^19.2.4/",
     "react": "https://esm.sh/react@^19.2.4",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "lodash": "https://esm.sh/lodash@^4.17.23"
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "firebase/": "https://esm.sh/firebase@^12.9.0/",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0",
+    "lodash": "https://esm.sh/lodash@^4.17.23",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4",
+    "express": "https://esm.sh/express@^5.2.1",
+    "path": "https://esm.sh/path@^0.12.7",
+    "url": "https://esm.sh/url@^0.11.4"
   }
 }
 </script>
