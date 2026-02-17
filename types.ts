@@ -26,7 +26,10 @@ export interface Attributes {
   hp_max: number;
   hp_temp: number;
   ac: number;
-  speed_mod: number;
+  speed_mod: number; // Legacy, kept for safety
+  speed: number; // New Base Speed
+  dashes: number; // New Dashes
+  passive_perception_mod: number; // New Passive Perception Modifier
   shield_curr: number;
   shield_max: number;
 }
@@ -54,6 +57,7 @@ export interface Item {
   name: string;
   desc?: string;
   type?: string;
+  isHeader?: boolean; // New for subgroups
   [key: string]: any;
 }
 
