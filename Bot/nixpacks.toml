@@ -2,8 +2,10 @@
 nixPkgs = ["dotnet-sdk_8", "icu", "zlib", "openssl"]
 
 [phases.build]
-# Принудительно называем выходной файл "Bot" (/p:AssemblyName=Bot)
-cmds = ["dotnet publish Helper/Helper.csproj -c Release -r linux-x64 --self-contained true /p:AssemblyName=Bot -o out"]
+# 1. Берем код из папки Helper
+# 2. Называем выходной файл "Bot" (/p:AssemblyName=Bot)
+# 3. Кладем результат в папку published в корне (-o published)
+cmds = ["dotnet publish Helper/Helper.csproj -c Release -r linux-x64 --self-contained true /p:AssemblyName=Bot -o published"]
 
 [start]
 cmd = "bash start.sh"
