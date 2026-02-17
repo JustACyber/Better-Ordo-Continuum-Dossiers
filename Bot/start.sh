@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# Если Railway не использует Dockerfile, он может попытаться запустить этот скрипт.
-# Переходим в папку с проектом
+# Переходим в папку с кодом
 cd Helper
 
-# Восстанавливаем зависимости и запускаем
-dotnet restore
-dotnet run
+# Запускаем бота (dotnet должен быть установлен через nixpacks.toml)
+echo "Starting Bot..."
+dotnet run --configuration Release
