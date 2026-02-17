@@ -53,7 +53,7 @@ namespace Helper
 
         public async Task MainAsync()
         {
-            Console.WriteLine(">>> STARTING ORDO BOT V3.2 (COMPILER FIX)...");
+            Console.WriteLine(">>> STARTING ORDO BOT V3.3 (FINAL FIXES)...");
 
             string envPath = FindEnvFile();
             if (!string.IsNullOrEmpty(envPath)) Env.Load(envPath);
@@ -205,10 +205,11 @@ namespace Helper
                     FirestoreHelper.SetField(state.Data, "stats.mapValue.fields.hp_temp", temp);
                     FirestoreHelper.SetField(state.Data, "stats.mapValue.fields.shield_curr", shield);
 
+                    // FIX: Passed as strings for integerValue
                     var updates = new Dictionary<string, object> {
-                        { "fields.stats.mapValue.fields.hp_curr.integerValue", int.Parse(hp) },
-                        { "fields.stats.mapValue.fields.hp_temp.integerValue", int.Parse(temp) },
-                        { "fields.stats.mapValue.fields.shield_curr.integerValue", int.Parse(shield) }
+                        { "fields.stats.mapValue.fields.hp_curr.integerValue", hp },
+                        { "fields.stats.mapValue.fields.hp_temp.integerValue", temp },
+                        { "fields.stats.mapValue.fields.shield_curr.integerValue", shield }
                     };
                     await FirestoreHelper.PatchFields(state.CharId, state.IsResistance, updates);
                 }
@@ -222,7 +223,8 @@ namespace Helper
                 {
                     var val = e.Values["val"];
                     FirestoreHelper.SetField(state.Data, "psionics.mapValue.fields.points_curr", val);
-                    await FirestoreHelper.PatchFields(state.CharId, state.IsResistance, new Dictionary<string, object> { { "fields.psionics.mapValue.fields.points_curr.integerValue", int.Parse(val) } });
+                    // FIX: Passed as string for integerValue
+                    await FirestoreHelper.PatchFields(state.CharId, state.IsResistance, new Dictionary<string, object> { { "fields.psionics.mapValue.fields.points_curr.integerValue", val } });
                 }
                 else if (parts[1] == "counter")
                 {
@@ -254,6 +256,7 @@ namespace Helper
                     }
                     else if (type.Contains("counter")) {
                         path = "universalis.mapValue.fields.counters";
+                        // FIX: Ensure values are strings for integerValue
                         fields["val"] = new JObject { ["integerValue"] = "0" };
                         fields["max"] = new JObject { ["integerValue"] = desc };
                     }
@@ -288,7 +291,6 @@ namespace Helper
             bool isRes = state.IsResistance;
             var color = isRes ? new DiscordColor(0x38ff12) : new DiscordColor(0xd4af37);
             
-            // FIX: Defined btnStyle
             var btnStyle = isRes ? ButtonStyle.Success : ButtonStyle.Primary;
 
             var name = FirestoreHelper.GetField(data, "meta.mapValue.fields.name") ?? "Unknown";
@@ -318,6 +320,12 @@ namespace Helper
 
                 case "stats":
                     var spd = FirestoreHelper.GetField(data, "stats.mapValue.fields.speed") ?? "0";
+                    var hp = FirestoreHelper.GetField(data, "stats.mapValue.fields.hp_curr") ?? "0";
+                    var hpMax = FirestoreHelper.GetField(data, "stats.mapValue.fields.hp_max") ?? "0";
+                    var hpTemp = FirestoreHelper.GetField(data, "stats.mapValue.fields.hp_temp") ?? "0";
+                    var shields = FirestoreHelper.GetField(data, "stats.mapValue.fields.shield_curr") ?? "0";
+                    
+                    embed.AddField("Vitals", $"**HP:** {hp} / {hpMax} (Temp: {hpTemp})\n**Shields:** {shields}", true);
                     
                     int wis = int.Parse(FirestoreHelper.GetField(data, "stats.mapValue.fields.wis") ?? "10");
                     int wisMod = (wis - 10) / 2;
@@ -326,7 +334,7 @@ namespace Helper
                     int ppMod = int.Parse(FirestoreHelper.GetField(data, "stats.mapValue.fields.passive_perception_mod") ?? "0");
                     int pp = 10 + wisMod + (expPer ? pb*2 : profPer ? pb : 0) + ppMod;
 
-                    embed.AddField("Sensors & Mobility", $"**Speed:** {spd}m\n**Passive Perception:** {pp}", false);
+                    embed.AddField("Sensors & Mobility", $"**Speed:** {spd}m\n**Passive Perception:** {pp}", true);
 
                     string savesStr = "";
                     foreach(var a in ATTRIBUTES)
@@ -334,7 +342,7 @@ namespace Helper
                         bool isProf = FirestoreHelper.GetBool(data, $"saves.mapValue.fields.prof_{a}");
                         savesStr += $"{(isProf ? "✅" : "⬛")} {a.ToUpper()}\n";
                     }
-                    embed.AddField("Save Proficiencies", savesStr, true);
+                    embed.AddField("Save Proficiencies", savesStr, false);
 
                     var attrStr = "";
                     foreach(var a in ATTRIBUTES)
@@ -343,7 +351,7 @@ namespace Helper
                         var mod = (val - 10) / 2;
                         attrStr += $"**{a.ToUpper()}:** {val} ({(mod>=0?"+":"")}{mod})\n";
                     }
-                    embed.AddField("Attributes", attrStr, true);
+                    embed.AddField("Attributes", attrStr, false);
                     break;
 
                 case "skills":
@@ -609,7 +617,8 @@ namespace Helper
                 current = current[part];
                 if (current == null) return null;
             }
-            return current["stringValue"]?.ToString() ?? current["integerValue"]?.ToString();
+            // FIX: Added doubleValue check
+            return current["stringValue"]?.ToString() ?? current["integerValue"]?.ToString() ?? current["doubleValue"]?.ToString();
         }
 
         public static bool GetBool(JObject root, string path)
