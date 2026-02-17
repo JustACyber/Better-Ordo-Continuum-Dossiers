@@ -1,8 +1,9 @@
+
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { OrdoService } from '../services/firebase';
 import { Character, Attributes } from '../types';
-import { ImperialInput, ImperialTextarea, EmpireNumberInput, StatBox, DataBlock, SectionHeader, DeleteBtn, EditModal, DragHandle } from '../components/Components';
+import { ImperialInput, ImperialTextarea, EmpireNumberInput, StatBox, DataBlock, SectionHeader, DeleteBtn, EditModal, EmpireImageModal, DragHandle } from '../components/Components';
 import { debounce } from 'lodash';
 
 // --- HELPERS ---
@@ -46,6 +47,7 @@ const Dossier: React.FC = () => {
   
   // Modal State
   const [editingItem, setEditingItem] = useState<{ path: string[], index: number, item: any } | null>(null);
+  const [isImgModalOpen, setImgModalOpen] = useState(false);
 
   // Drag State
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -264,6 +266,12 @@ const Dossier: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden relative">
+      <EmpireImageModal 
+          isOpen={isImgModalOpen}
+          onClose={() => setImgModalOpen(false)}
+          onConfirm={(url) => update(d => d.meta.image = url)}
+      />
+
       <EditModal 
         isOpen={!!editingItem}
         onClose={() => setEditingItem(null)}
@@ -366,7 +374,7 @@ const Dossier: React.FC = () => {
                       <SectionHeader title="Imago / Облик" />
                       <div className="border-2 border-ordo-gold-dim p-1 bg-[rgba(0,0,0,0.3)] min-h-[300px] md:min-h-[400px] flex items-center justify-center relative shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]">
                         {data.meta.image ? <img src={data.meta.image} alt="char" className="max-w-full max-h-[300px] md:max-h-[400px] block" /> : <span className="text-ordo-gold-dim">NO IMAGE</span>}
-                        <button onClick={() => { const method = prompt("1. URL\n2. Upload (Mock)", "1"); if(method === "1") { const url = prompt("Enter Image URL:"); if(url) update(d => d.meta.image = url); } }} className="absolute bottom-2 right-2 bg-[rgba(0,0,0,0.8)] border border-ordo-gold text-ordo-gold px-2 hover:bg-ordo-gold hover:text-black">↻</button>
+                        <button onClick={() => setImgModalOpen(true)} className="absolute bottom-2 right-2 bg-[rgba(0,0,0,0.8)] border border-ordo-gold text-ordo-gold px-2 hover:bg-ordo-gold hover:text-black">↻</button>
                       </div>
                     </DataBlock>
 
