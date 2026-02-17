@@ -1,4 +1,5 @@
-import React, { useRef } from 'react';
+
+import React, { useRef, useState } from 'react';
 
 // --- STYLES ---
 const noSpinnerStyle = `
@@ -444,6 +445,126 @@ export const ResistanceEditModal: React.FC<{
             </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+export const ResistanceConfirmModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+}> = ({ isOpen, onClose, onConfirm, title, message }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fadeIn" onClick={onClose}>
+        <div className="bg-[#0a0a0a] border-2 border-red-500 p-1 w-full max-w-[500px] shadow-[0_0_30px_rgba(255,0,0,0.2)]" onClick={e => e.stopPropagation()}>
+            <div className="bg-red-900/30 p-2 flex justify-between items-center border-b border-red-500 mb-6">
+                <span className="font-bold text-red-500 font-tech tracking-widest uppercase">{title}</span>
+                <button onClick={onClose} className="text-red-500 hover:text-white px-2 font-mono">X</button>
+            </div>
+            
+            <div className="px-6 pb-6 flex flex-col gap-6 text-center">
+                <div className="text-white font-mono">{message}</div>
+                <div className="flex gap-4">
+                    <button onClick={onClose} className="flex-1 border border-red-900 text-red-500 py-3 hover:bg-red-900/20 transition-colors font-mono uppercase">
+                        CANCEL
+                    </button>
+                    <button 
+                        onClick={() => { onConfirm(); onClose(); }} 
+                        className="flex-1 bg-red-600 text-white border border-red-500 py-3 hover:bg-red-500 hover:text-black font-bold uppercase transition-all font-mono"
+                    >
+                        CONFIRM
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+  );
+};
+
+export const ResistanceImageUploadModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (url: string) => void;
+}> = ({ isOpen, onClose, onConfirm }) => {
+  const [tab, setTab] = useState<'url' | 'file'>('url');
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setError('');
+      const file = e.target.files?.[0];
+      if (file) {
+          if (file.size > 800 * 1024) { // 800KB limit warning
+              setError("WARNING: File size large. Database limit may be exceeded.");
+          }
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              onConfirm(reader.result as string);
+              onClose();
+          };
+          reader.readAsDataURL(file);
+      }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fadeIn" onClick={onClose}>
+        <div className="bg-[#0a0a0a] border-2 border-[#38ff12] p-1 w-full max-w-[500px] shadow-[0_0_30px_rgba(56,255,18,0.2)]" onClick={e => e.stopPropagation()}>
+            <div className="bg-[#1a5c0b] p-2 flex justify-between items-center border-b border-[#38ff12] mb-6">
+                <span className="font-bold text-white font-tech tracking-widest">UPLOAD VISUAL DATA</span>
+                <button onClick={onClose} className="text-[#38ff12] hover:text-white px-2 font-mono">X</button>
+            </div>
+            
+            <div className="px-6 pb-6 flex flex-col gap-4">
+                <div className="flex gap-2 mb-2">
+                    <button onClick={() => setTab('url')} className={`flex-1 py-2 font-mono text-sm border ${tab==='url' ? 'bg-[#38ff12] text-black border-[#38ff12]' : 'text-[#1a5c0b] border-[#1a5c0b]'}`}>LINK URL</button>
+                    <button onClick={() => setTab('file')} className={`flex-1 py-2 font-mono text-sm border ${tab==='file' ? 'bg-[#38ff12] text-black border-[#38ff12]' : 'text-[#1a5c0b] border-[#1a5c0b]'}`}>LOCAL FILE</button>
+                </div>
+
+                {tab === 'url' ? (
+                     <input 
+                        autoFocus
+                        type="text" 
+                        className="bg-[#051a05] border border-[#38ff12] p-4 text-[#38ff12] font-mono text-sm outline-none focus:bg-[#0a2e0a] placeholder-[#1a5c0b]"
+                        placeholder="HTTPS://..."
+                        value={url}
+                        onChange={e => setUrl(e.target.value)}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter' && url.trim()) {
+                                onConfirm(url);
+                                onClose();
+                            }
+                        }}
+                    />
+                ) : (
+                    <div className="border border-dashed border-[#38ff12] p-8 text-center relative hover:bg-[#38ff12]/10 transition-colors cursor-pointer">
+                        <input type="file" accept="image/*" onChange={handleFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
+                        <div className="text-[#38ff12] font-mono">CLICK TO SELECT FILE</div>
+                        <div className="text-[#1a5c0b] text-xs mt-2">SUPPORTS: JPG, PNG, WEBP</div>
+                        {error && <div className="text-red-500 text-xs mt-2">{error}</div>}
+                    </div>
+                )}
+                
+                {tab === 'url' && (
+                    <button 
+                        onClick={() => {
+                            if (url.trim()) {
+                                onConfirm(url);
+                                onClose();
+                            }
+                        }} 
+                        className="mt-2 w-full bg-[#1a5c0b] text-white border border-[#38ff12] py-3 hover:bg-[#38ff12] hover:text-black font-bold uppercase transition-all font-mono"
+                    >
+                        CONFIRM LINK
+                    </button>
+                )}
+            </div>
+        </div>
     </div>
   );
 };
