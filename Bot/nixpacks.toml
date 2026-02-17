@@ -1,10 +1,9 @@
 [phases.setup]
 nixPkgs = ["dotnet-sdk_8", "icu", "zlib", "openssl"]
 
+# Оставляем build команду здесь для порядка, но start.sh теперь подстрахует нас,
+# если Railway решит пропустить эту фазу.
 [phases.build]
-# 1. Берем код из папки Helper
-# 2. Называем выходной файл "Bot" (/p:AssemblyName=Bot)
-# 3. Кладем результат в папку published в корне (-o published)
 cmds = ["dotnet publish Helper/Helper.csproj -c Release -r linux-x64 --self-contained true /p:AssemblyName=Bot -o published"]
 
 [start]
