@@ -55,7 +55,7 @@ namespace Helper
 
         public async Task MainAsync()
         {
-            Console.WriteLine(">>> STARTING ORDO BOT V3.7 (SINGLE MESSAGE MODE)...");
+            Console.WriteLine(">>> STARTING ORDO BOT V3.7.1 (FIX VAR SCOPE)...");
 
             string envPath = FindEnvFile();
             if (!string.IsNullOrEmpty(envPath)) Env.Load(envPath);
@@ -370,12 +370,12 @@ namespace Helper
                     .WithDescription("Select an item below to **PERMANENTLY DELETE** it from the database.\nThis action cannot be undone.")
                     .WithColor(DiscordColor.Red);
 
-                var options = GetInspectOptions(state);
+                var deleteOptions = GetInspectOptions(state); // RENAMED VAR
                 var rowsDel = new List<DiscordActionRowComponent>();
 
-                if (options.Count > 0)
+                if (deleteOptions.Count > 0)
                 {
-                    var dropdown = new DiscordSelectComponent("menu_delete", "Select item to DELETE...", options.Take(25).ToList());
+                    var dropdown = new DiscordSelectComponent("menu_delete", "Select item to DELETE...", deleteOptions.Take(25).ToList());
                     rowsDel.Add(new DiscordActionRowComponent(new[] { dropdown }));
                 }
                 else
@@ -613,12 +613,12 @@ namespace Helper
             rows.Add(new DiscordActionRowComponent(actions));
 
             // Row 4: Inspect (Still useful for details)
-            var options = GetInspectOptions(state);
+            var inspectOptions = GetInspectOptions(state); // RENAMED VAR
 
-            if (options.Count > 0)
+            if (inspectOptions.Count > 0)
             {
                 rows.Add(new DiscordActionRowComponent(new [] {
-                    new DiscordSelectComponent("menu_inspect", "Inspect Detail...", options.Take(25).ToList())
+                    new DiscordSelectComponent("menu_inspect", "Inspect Detail...", inspectOptions.Take(25).ToList())
                 }));
             }
 
