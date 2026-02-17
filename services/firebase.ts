@@ -1,3 +1,4 @@
+
 import * as firebaseApp from 'firebase/app';
 import { 
   getFirestore, 
@@ -180,7 +181,7 @@ export const OrdoService = {
         stats: { 
             str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10, 
             hp_curr: 0, hp_max: 0, hp_temp: 0, ac: 10, 
-            speed_mod: 0, speed: 0, dashes: 0, passive_perception_mod: 0,
+            speed_mod: 0, speed: 0, passive_perception_mod: 0,
             shield_curr: 0, shield_max: 0 
         },
         saves: { prof_str: false, prof_dex: false, prof_con: false, prof_int: false, prof_wis: false, prof_cha: false },
