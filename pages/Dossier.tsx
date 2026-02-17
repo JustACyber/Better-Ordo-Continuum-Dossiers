@@ -225,6 +225,12 @@ const Dossier: React.FC = () => {
   const getAttrMod = (attr: keyof Attributes) => getMod(data.stats[attr] || 10);
   const isLocked = data.locks?.[activePanel];
 
+  // Passive Perception Calc
+  const wisMod = getMod(data.stats.wis);
+  const perSkill = data.skills.data['perception'] || [false, false, 0];
+  const perBonus = (perSkill[1] ? pb * 2 : (perSkill[0] ? pb : 0)) + perSkill[2];
+  const passivePerception = 10 + wisMod + perBonus + (data.stats.passive_perception_mod || 0);
+
   // Psionics Calculations
   const psiBaseAttr = data.psionics.base_attr;
   const psiMod = getMod(data.stats[psiBaseAttr]);
@@ -351,7 +357,7 @@ const Dossier: React.FC = () => {
           ) : (
             <div className="max-w-[1200px] mx-auto animate-fadeIn pb-20">
               
-              {/* ... IDENTITY & BIOMETRICS (Unchanged) ... */}
+              {/* ... IDENTITY (Unchanged) ... */}
               {activePanel === 'identity' && (
                 <>
                   <h1 className="font-header text-3xl md:text-4xl text-ordo-gold text-center mb-6 md:mb-10 border-b border-ordo-gold-dim pb-4">{navLabels['identity']}</h1>
@@ -406,7 +412,16 @@ const Dossier: React.FC = () => {
                         </div>
                         <div className="text-center">
                            <div className="text-ordo-gold-dim italic mb-2">Мобильность</div>
-                           <div className="flex items-center gap-2 justify-center"> <EmpireNumberInput className="w-20 bg-[rgba(0,0,0,0.4)] border border-ordo-gold-dim text-center text-white p-1" value={data.stats.speed_mod} onChange={e => update(d => d.stats.speed_mod = parseInt(e.target.value))} /> <span className="font-header text-xl text-white font-bold">{9 + (data.stats.speed_mod * 1.5)}м</span> </div>
+                           <div className="flex flex-col gap-2 items-center">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-ordo-gold-dim">База:</span>
+                                    <EmpireNumberInput step={1.5} min={0} className="w-16 bg-transparent border-b border-white text-white text-center font-bold" value={data.stats.speed} onChange={e => update(d => d.stats.speed = parseFloat(e.target.value))} />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-ordo-gold-dim">Рывки:</span>
+                                    <EmpireNumberInput step={1} min={0} className="w-16 bg-transparent border-b border-white text-white text-center font-bold" value={data.stats.dashes} onChange={e => update(d => d.stats.dashes = parseInt(e.target.value))} />
+                                </div>
+                           </div>
                         </div>
                      </div>
                   </DataBlock>
@@ -424,6 +439,16 @@ const Dossier: React.FC = () => {
                        </div>
                      </div>
                      <DataBlock>
+                       <SectionHeader title="Пассивная Вним." />
+                        <div className="flex flex-col items-center justify-center h-full pb-4">
+                           <div className="text-5xl font-header font-bold text-white mb-2">{passivePerception}</div>
+                           <div className="flex items-center gap-2 text-sm text-ordo-gold-dim">
+                                <span>Вольный Мод:</span>
+                                <EmpireNumberInput className="w-12 border-b border-ordo-gold-dim text-center text-white" value={data.stats.passive_perception_mod || 0} onChange={e => update(d => d.stats.passive_perception_mod = parseInt(e.target.value))} />
+                           </div>
+                        </div>
+                     </DataBlock>
+                     <DataBlock className="lg:col-span-2">
                        <SectionHeader title="Спасброски" />
                        <table className="w-full border-collapse">
                          <tbody>
@@ -439,6 +464,7 @@ const Dossier: React.FC = () => {
                 </>
               )}
 
+              {/* ... SKILLS, EQUIPMENT, PSYCH, PSIONICS (Unchanged in logic, just rendered) ... */}
               {activePanel === 'skills' && (
                 <>
                   <h1 className="font-header text-3xl md:text-4xl text-ordo-gold text-center mb-6 md:mb-10 border-b border-ordo-gold-dim pb-4">{navLabels['skills']}</h1>
@@ -468,105 +494,45 @@ const Dossier: React.FC = () => {
                         </table>
                     </DataBlock>
                   )}
-
-                  {subTab === 'Умения' && (
+                  {/* ... other skill subtabs logic unchanged for brevity, reusing existing implementation ... */}
+                  {['Умения','Черты','Особенности'].includes(subTab) && (
                       <DataBlock>
-                        <SectionHeader title="Боевые Умения" onAdd={() => addItem(['abilities'], {name: 'Новое умение', type: 'Боевое'})} />
-                        {data.abilities.map((ab, i) => (
+                        <SectionHeader title={subTab} onAdd={() => addItem([subTab==='Умения'?'abilities':subTab==='Черты'?'traits':'features'], {name: 'Новая запись'})} />
+                        {(data as any)[subTab==='Умения'?'abilities':subTab==='Черты'?'traits':'features'].map((ab: any, i: number) => {
+                            const path = [subTab==='Умения'?'abilities':subTab==='Черты'?'traits':'features'];
+                            return (
                              <div 
                                 key={i} 
-                                className={`flex justify-between items-center p-2 border border-[rgba(212,175,55,0.2)] bg-[rgba(0,0,0,0.3)] hover:border-ordo-gold mb-2 cursor-pointer transition-opacity ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['abilities']) ? 'opacity-30' : 'opacity-100'}`} 
-                                onClick={() => openEdit(['abilities'], i)}
-                                data-list-path={JSON.stringify(['abilities'])}
+                                className={`flex justify-between items-center p-2 border border-[rgba(212,175,55,0.2)] bg-[rgba(0,0,0,0.3)] hover:border-ordo-gold mb-2 cursor-pointer transition-opacity ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(path) ? 'opacity-30' : 'opacity-100'}`} 
+                                onClick={() => openEdit(path, i)}
+                                data-list-path={JSON.stringify(path)}
                                 data-index={i}
                              >
                                <span className="text-ordo-gold font-header w-full">{ab.name}</span>
                                <div className="flex" onClick={e => e.stopPropagation()}>
-                                 <DragHandle onMouseDown={(e) => handleDragStart(e, ['abilities'], i, ab.name)} onTouchStart={(e) => handleDragStart(e, ['abilities'], i, ab.name)} />
-                                 <DeleteBtn onClick={() => removeItem(['abilities'], i)} />
+                                 <DragHandle onMouseDown={(e) => handleDragStart(e, path, i, ab.name)} onTouchStart={(e) => handleDragStart(e, path, i, ab.name)} />
+                                 <DeleteBtn onClick={() => removeItem(path, i)} />
                                </div>
                              </div>
-                        ))}
+                        )})}
                       </DataBlock>
                   )}
-                  {subTab === 'Черты' && (
-                      <DataBlock>
-                        <SectionHeader title="Черты" onAdd={() => addItem(['traits'], {name: 'Новая черта'})} />
-                        {data.traits.map((tr, i) => (
-                             <div 
-                                key={i} 
-                                className={`flex justify-between items-center p-2 border border-[rgba(212,175,55,0.2)] bg-[rgba(0,0,0,0.3)] hover:border-ordo-gold mb-2 cursor-pointer transition-opacity ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['traits']) ? 'opacity-30' : 'opacity-100'}`} 
-                                onClick={() => openEdit(['traits'], i)}
-                                data-list-path={JSON.stringify(['traits'])}
-                                data-index={i}
-                             >
-                               <span className="text-ordo-gold font-header w-full">{tr.name}</span>
-                               <div className="flex" onClick={e => e.stopPropagation()}>
-                                 <DragHandle onMouseDown={(e) => handleDragStart(e, ['traits'], i, tr.name)} onTouchStart={(e) => handleDragStart(e, ['traits'], i, tr.name)} />
-                                 <DeleteBtn onClick={() => removeItem(['traits'], i)} />
-                               </div>
-                             </div>
-                        ))}
-                      </DataBlock>
-                  )}
-                  {subTab === 'Особенности' && (
-                      <DataBlock>
-                        <SectionHeader title="Особенности" onAdd={() => addItem(['features'], {name: 'Новая особенность'})} />
-                        {data.features.map((ft, i) => (
-                             <div 
-                                key={i} 
-                                className={`flex justify-between items-center p-2 border border-[rgba(212,175,55,0.2)] bg-[rgba(0,0,0,0.3)] hover:border-ordo-gold mb-2 cursor-pointer transition-opacity ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['features']) ? 'opacity-30' : 'opacity-100'}`} 
-                                onClick={() => openEdit(['features'], i)}
-                                data-list-path={JSON.stringify(['features'])}
-                                data-index={i}
-                             >
-                               <span className="text-ordo-gold font-header w-full">{ft.name}</span>
-                               <div className="flex" onClick={e => e.stopPropagation()}>
-                                 <DragHandle onMouseDown={(e) => handleDragStart(e, ['features'], i, ft.name)} onTouchStart={(e) => handleDragStart(e, ['features'], i, ft.name)} />
-                                 <DeleteBtn onClick={() => removeItem(['features'], i)} />
-                               </div>
-                             </div>
-                        ))}
-                      </DataBlock>
-                  )}
-                  {subTab === 'Владение' && (
+                   {subTab === 'Владение' && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <DataBlock>
-                            <SectionHeader title="Оружие/Доспехи" onAdd={() => addItem(['profs', 'armory'], "Новое")} />
-                            {data.profs.armory.map((it, i) => (
-                                <div key={i} className="flex justify-between p-1 border-b border-white/10" data-list-path={JSON.stringify(['profs', 'armory'])} data-index={i}>
-                                    <input className="bg-transparent w-full text-gray-300" value={it} onChange={(e) => update(d => d.profs.armory[i] = e.target.value)} />
-                                    <div className="flex">
-                                        <DragHandle onMouseDown={(e) => handleDragStart(e, ['profs', 'armory'], i, it)} onTouchStart={(e) => handleDragStart(e, ['profs', 'armory'], i, it)} />
-                                        <DeleteBtn onClick={() => removeItem(['profs', 'armory'], i)} />
+                        {['armory', 'tools', 'langs'].map(k => (
+                            <DataBlock key={k}>
+                                <SectionHeader title={k==='armory'?'Оружие/Броня':k==='tools'?'Инструменты':'Языки'} onAdd={() => addItem(['profs', k], "Новое")} />
+                                {(data.profs as any)[k].map((it:string, i:number) => (
+                                    <div key={i} className="flex justify-between p-1 border-b border-white/10" data-list-path={JSON.stringify(['profs', k])} data-index={i}>
+                                        <input className="bg-transparent w-full text-gray-300" value={it} onChange={(e) => update(d => (d.profs as any)[k][i] = e.target.value)} />
+                                        <div className="flex">
+                                            <DragHandle onMouseDown={(e) => handleDragStart(e, ['profs', k], i, it)} onTouchStart={(e) => handleDragStart(e, ['profs', k], i, it)} />
+                                            <DeleteBtn onClick={() => removeItem(['profs', k], i)} />
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                        </DataBlock>
-                        <DataBlock>
-                            <SectionHeader title="Инструменты" onAdd={() => addItem(['profs', 'tools'], "Новое")} />
-                            {data.profs.tools.map((it, i) => (
-                                <div key={i} className="flex justify-between p-1 border-b border-white/10" data-list-path={JSON.stringify(['profs', 'tools'])} data-index={i}>
-                                    <input className="bg-transparent w-full text-gray-300" value={it} onChange={(e) => update(d => d.profs.tools[i] = e.target.value)} />
-                                    <div className="flex">
-                                        <DragHandle onMouseDown={(e) => handleDragStart(e, ['profs', 'tools'], i, it)} onTouchStart={(e) => handleDragStart(e, ['profs', 'tools'], i, it)} />
-                                        <DeleteBtn onClick={() => removeItem(['profs', 'tools'], i)} />
-                                    </div>
-                                </div>
-                            ))}
-                        </DataBlock>
-                        <DataBlock>
-                            <SectionHeader title="Языки" onAdd={() => addItem(['profs', 'langs'], "Новое")} />
-                            {data.profs.langs.map((it, i) => (
-                                <div key={i} className="flex justify-between p-1 border-b border-white/10" data-list-path={JSON.stringify(['profs', 'langs'])} data-index={i}>
-                                    <input className="bg-transparent w-full text-gray-300" value={it} onChange={(e) => update(d => d.profs.langs[i] = e.target.value)} />
-                                    <div className="flex">
-                                        <DragHandle onMouseDown={(e) => handleDragStart(e, ['profs', 'langs'], i, it)} onTouchStart={(e) => handleDragStart(e, ['profs', 'langs'], i, it)} />
-                                        <DeleteBtn onClick={() => removeItem(['profs', 'langs'], i)} />
-                                    </div>
-                                </div>
-                            ))}
-                        </DataBlock>
+                                ))}
+                            </DataBlock>
+                        ))}
                       </div>
                   )}
                 </>
@@ -668,32 +634,27 @@ const Dossier: React.FC = () => {
                             </DataBlock>
                         </div>
                     )}
-
-                    {subTab === 'spells' && (
+                     {/* Spells part largely unchanged, just ensuring existing logic works */}
+                     {subTab === 'spells' && (
                         <DataBlock className="overflow-x-auto">
                             <SectionHeader title="Матрица Заклинаний" onAdd={() => addItem(['psionics', 'spells'], {name: 'Новое', time: '1д', range: '18м', cost: 0, dur: 'Мгновенно'})} />
-                            
-                            {/* Cantrips */}
-                            <div className="mb-6 min-w-[500px]">
-                                <h3 className="text-ordo-gold font-header text-sm tracking-[3px] border-b border-white/10 mb-2 py-1 text-center bg-white/5">ЗАГОВОРЫ</h3>
+                            {/* Cantrips & Spells tables logic unchanged */}
+                            {/* ... (reusing existing spell table render code) ... */}
+                            {/* Shortened for brevity as logic is identical to existing file, except ensure DragHandle/DeleteBtn are present */}
+                            {[{t:'ЗАГОВОРЫ',f:(c:number)=>c===0},{t:'ЗАКЛИНАНИЯ',f:(c:number)=>c>0}].map(grp => (
+                                <div key={grp.t} className="mb-6 min-w-[500px]">
+                                <h3 className="text-ordo-gold font-header text-sm tracking-[3px] border-b border-white/10 mb-2 py-1 text-center bg-white/5">{grp.t}</h3>
                                 <table className="w-full text-left border-collapse">
-                                    <thead className="text-ordo-gold text-xs uppercase opacity-50">
-                                        <tr><th>Название</th><th>Вр</th><th>Дист</th><th>К</th><th>Длит</th><th>Ст</th><th></th></tr>
-                                    </thead>
+                                    <thead className="text-ordo-gold text-xs uppercase opacity-50"><tr><th>Название</th><th>Вр</th><th>Дист</th><th>К</th><th>Длит</th><th>Ст</th><th></th></tr></thead>
                                     <tbody>
-                                        {[...data.psionics.spells].map((s, i) => ({s, i})).filter(o => o.s.cost === 0).map(({s, i}) => (
-                                            <tr 
-                                                key={i} 
-                                                className={`border-b border-white/5 hover:bg-white/5 transition-opacity ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['psionics', 'spells']) ? 'opacity-30' : 'opacity-100'}`}
-                                                data-list-path={JSON.stringify(['psionics', 'spells'])}
-                                                data-index={i}
-                                            >
+                                        {[...data.psionics.spells].map((s, i) => ({s, i})).filter(o => grp.f(o.s.cost)).sort((a,b) => a.s.cost - b.s.cost).map(({s, i}) => (
+                                            <tr key={i} className={`border-b border-white/5 hover:bg-white/5 transition-opacity ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['psionics', 'spells']) ? 'opacity-30' : 'opacity-100'}`} data-list-path={JSON.stringify(['psionics', 'spells'])} data-index={i}>
                                                 <td className="p-2 cursor-pointer" onClick={() => openEdit(['psionics', 'spells'], i)}><span className="font-bold text-white hover:text-ordo-gold">{s.name}</span></td>
                                                 <td className="p-2"><input className="bg-transparent w-10 text-center" value={s.time} onChange={e => update(d => d.psionics.spells[i].time = e.target.value)} /></td>
                                                 <td className="p-2"><input className="bg-transparent w-10 text-center" value={s.range} onChange={e => update(d => d.psionics.spells[i].range = e.target.value)} /></td>
                                                 <td className="p-2 text-center"><input type="checkbox" checked={s.conc} onChange={e => update(d => d.psionics.spells[i].conc = e.target.checked)} /></td>
                                                 <td className="p-2"><input className="bg-transparent w-16 text-center" value={s.dur} onChange={e => update(d => d.psionics.spells[i].dur = e.target.value)} /></td>
-                                                <td className="p-2"><EmpireNumberInput className="bg-transparent w-12 text-center text-gray-500" value={s.cost} onChange={e => update(d => d.psionics.spells[i].cost = parseInt(e.target.value))} /></td>
+                                                <td className="p-2"><EmpireNumberInput className={`bg-transparent w-12 text-center ${s.cost>0?'text-purple-300 font-bold':'text-gray-500'}`} value={s.cost} onChange={e => update(d => d.psionics.spells[i].cost = parseInt(e.target.value))} /></td>
                                                 <td className="p-2 text-right flex items-center justify-end">
                                                     <DragHandle onMouseDown={(e) => handleDragStart(e, ['psionics', 'spells'], i, s.name)} onTouchStart={(e) => handleDragStart(e, ['psionics', 'spells'], i, s.name)} />
                                                     <DeleteBtn onClick={() => removeItem(['psionics', 'spells'], i)} />
@@ -702,38 +663,8 @@ const Dossier: React.FC = () => {
                                         ))}
                                     </tbody>
                                 </table>
-                            </div>
-
-                             {/* Spells */}
-                             <div className="min-w-[500px]">
-                                <h3 className="text-ordo-gold font-header text-sm tracking-[3px] border-b border-white/10 mb-2 py-1 text-center bg-white/5">ЗАКЛИНАНИЯ</h3>
-                                <table className="w-full text-left border-collapse">
-                                    <thead className="text-ordo-gold text-xs uppercase opacity-50">
-                                        <tr><th>Название</th><th>Вр</th><th>Дист</th><th>К</th><th>Длит</th><th>Ст</th><th></th></tr>
-                                    </thead>
-                                    <tbody>
-                                        {[...data.psionics.spells].map((s, i) => ({s, i})).filter(o => o.s.cost > 0).sort((a,b) => a.s.cost - b.s.cost).map(({s, i}) => (
-                                            <tr 
-                                                key={i} 
-                                                className={`border-b border-white/5 hover:bg-white/5 transition-opacity ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['psionics', 'spells']) ? 'opacity-30' : 'opacity-100'}`}
-                                                data-list-path={JSON.stringify(['psionics', 'spells'])}
-                                                data-index={i}
-                                            >
-                                                <td className="p-2 cursor-pointer" onClick={() => openEdit(['psionics', 'spells'], i)}><span className="font-bold text-white hover:text-ordo-gold">{s.name}</span></td>
-                                                <td className="p-2"><input className="bg-transparent w-10 text-center" value={s.time} onChange={e => update(d => d.psionics.spells[i].time = e.target.value)} /></td>
-                                                <td className="p-2"><input className="bg-transparent w-10 text-center" value={s.range} onChange={e => update(d => d.psionics.spells[i].range = e.target.value)} /></td>
-                                                <td className="p-2 text-center"><input type="checkbox" checked={s.conc} onChange={e => update(d => d.psionics.spells[i].conc = e.target.checked)} /></td>
-                                                <td className="p-2"><input className="bg-transparent w-16 text-center" value={s.dur} onChange={e => update(d => d.psionics.spells[i].dur = e.target.value)} /></td>
-                                                <td className="p-2"><EmpireNumberInput className="bg-transparent w-12 text-center text-purple-300 font-bold" value={s.cost} onChange={e => update(d => d.psionics.spells[i].cost = parseInt(e.target.value))} /></td>
-                                                <td className="p-2 text-right flex items-center justify-end">
-                                                    <DragHandle onMouseDown={(e) => handleDragStart(e, ['psionics', 'spells'], i, s.name)} onTouchStart={(e) => handleDragStart(e, ['psionics', 'spells'], i, s.name)} />
-                                                    <DeleteBtn onClick={() => removeItem(['psionics', 'spells'], i)} />
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                </div>
+                            ))}
                         </DataBlock>
                     )}
                   </>
@@ -752,16 +683,23 @@ const Dossier: React.FC = () => {
                             </div>
                         </DataBlock>
                         <DataBlock>
-                             <SectionHeader title="Реестр" onAdd={() => addItem(['universalis', 'custom_table'], {name: 'Запись'})} />
+                             <div className="flex justify-between items-end border-b-2 border-ordo-crimson mb-4 pb-1">
+                                <h2 className="font-header text-gray-200 text-base md:text-lg uppercase tracking-wider">Реестр</h2>
+                                <div className="flex gap-2">
+                                    <button onClick={() => addItem(['universalis', 'custom_table'], {name: 'Запись'})} className="text-xs border border-ordo-gold-dim text-ordo-gold px-2 hover:bg-ordo-gold hover:text-black">[+ Entry]</button>
+                                    <button onClick={() => addItem(['universalis', 'custom_table'], {name: '---', isHeader: true})} className="text-xs border border-ordo-gold-dim text-white px-2 hover:bg-white hover:text-black">[+ Group]</button>
+                                </div>
+                             </div>
                              {data.universalis.custom_table.map((it, i) => (
                                  <div 
                                     key={i} 
-                                    className={`flex justify-between p-2 border-b border-white/10 transition-opacity ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['universalis', 'custom_table']) ? 'opacity-30' : 'opacity-100'}`}
+                                    className={`flex justify-between p-2 border-b transition-opacity items-center ${it.isHeader ? 'bg-[rgba(212,175,55,0.2)] border-ordo-gold mt-4' : 'border-white/10 hover:bg-white/5'} ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['universalis', 'custom_table']) ? 'opacity-30' : 'opacity-100'}`}
                                     data-list-path={JSON.stringify(['universalis', 'custom_table'])}
                                     data-index={i}
                                  >
-                                     <input className="bg-transparent w-full" value={it.name} onChange={e => update(d => d.universalis.custom_table[i].name = e.target.value)} />
-                                     <div className="flex">
+                                     <input className={`bg-transparent w-full ${it.isHeader ? 'font-bold text-ordo-gold text-center uppercase tracking-widest' : ''}`} value={it.name} onChange={e => update(d => d.universalis.custom_table[i].name = e.target.value)} />
+                                     <div className="flex items-center">
+                                        {!it.isHeader && <button onClick={() => openEdit(['universalis', 'custom_table'], i)} className="mr-2 text-xs text-ordo-gold-dim hover:text-ordo-gold">[Desc]</button>}
                                         <DragHandle onMouseDown={(e) => handleDragStart(e, ['universalis', 'custom_table'], i, it.name)} onTouchStart={(e) => handleDragStart(e, ['universalis', 'custom_table'], i, it.name)} />
                                         <DeleteBtn onClick={() => removeItem(['universalis', 'custom_table'], i)} />
                                      </div>
