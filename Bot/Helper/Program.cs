@@ -31,7 +31,6 @@ namespace Helper
 
     class Program
     {
-        // Global state cache: MessageID -> State
         public static Dictionary<ulong, UserState> ActiveSessions = new Dictionary<ulong, UserState>();
         public static readonly HttpClient HttpClient = new HttpClient();
 
@@ -40,25 +39,27 @@ namespace Helper
         public const string APP_ID = "ordo-continuum-v12";
         public const string API_KEY = "AIzaSyB1gqid0rb9K-z0lKNTpyKiFpOKUl7ffrM";
 
-        static void Main(string[] args)
-        {
-            new Program().MainAsync().GetAwaiter().GetResult();
-        }
+        // Constants
+        public static readonly string[] ATTRIBUTES = { "str", "dex", "con", "int", "wis", "cha" };
+        public static readonly (string key, string name, string attr)[] SKILLS = {
+            ("athletics", "Атлетика", "str"), ("acrobatics", "Акробатика", "dex"), ("sleight", "Ловкость рук", "dex"), ("stealth", "Скрытность", "dex"),
+            ("history", "История", "int"), ("investigation", "Расследование", "int"), ("tech", "Техника", "int"), ("programming", "Программирование", "int"),
+            ("fund_science", "Фун. Науки", "int"), ("weapons", "Оружие", "int"), ("nature", "Природа", "int"), ("religion", "Религия", "int"),
+            ("perception", "Восприятие", "wis"), ("survival", "Выживание", "wis"), ("medicine", "Медицина", "wis"), ("insight", "Проницательность", "wis"),
+            ("performance", "Выступление", "cha"), ("intimidation", "Запугивание", "cha"), ("deception", "Обман", "cha"), ("persuasion", "Убеждение", "cha")
+        };
+
+        static void Main(string[] args) => new Program().MainAsync().GetAwaiter().GetResult();
 
         public async Task MainAsync()
         {
-            Console.WriteLine(">>> STARTING ORDO BOT V2.2 (STABLE)...");
+            Console.WriteLine(">>> STARTING ORDO BOT V3.0 (FULL SYNC)...");
 
             string envPath = FindEnvFile();
             if (!string.IsNullOrEmpty(envPath)) Env.Load(envPath);
 
             var token = Environment.GetEnvironmentVariable("DISCORD_TOKEN");
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                Console.WriteLine("CRITICAL: DISCORD_TOKEN missing.");
-                await Task.Delay(5000);
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(token)) { Console.WriteLine("CRITICAL: DISCORD_TOKEN missing."); return; }
 
             var discord = new DiscordClient(new DiscordConfiguration()
             {
@@ -69,34 +70,19 @@ namespace Helper
                 MinimumLogLevel = LogLevel.Information
             });
 
-            discord.UseInteractivity(new InteractivityConfiguration() { Timeout = TimeSpan.FromMinutes(5) });
+            discord.UseInteractivity(new InteractivityConfiguration() { Timeout = TimeSpan.FromMinutes(15) });
 
-            // Text Commands
-            var commands = discord.UseCommandsNext(new CommandsNextConfiguration()
-            {
-                StringPrefixes = new[] { "!" },
-                EnableDms = true,
-                EnableMentionPrefix = true
-            });
+            var commands = discord.UseCommandsNext(new CommandsNextConfiguration() { StringPrefixes = new[] { "!" }, EnableDms = true, EnableMentionPrefix = true });
             commands.RegisterCommands<DossierCommands>();
 
-            // Slash Commands
             var slash = discord.UseSlashCommands();
             slash.RegisterCommands<DossierSlashCommands>();
 
-            // --- EVENT HANDLERS ---
             discord.ComponentInteractionCreated += OnComponentInteraction;
             discord.ModalSubmitted += OnModalSubmitted;
 
-            try
-            {
-                await discord.ConnectAsync();
-                await Task.Delay(-1);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error: {ex.Message}");
-            }
+            await discord.ConnectAsync();
+            await Task.Delay(-1);
         }
 
         public static string ExtractId(string input)
@@ -107,14 +93,12 @@ namespace Helper
             return input;
         }
 
-        // --- INTERACTION HANDLER (BUTTONS & MENUS) ---
+        // --- INTERACTION HANDLER ---
         private async Task OnComponentInteraction(DiscordClient sender, ComponentInteractionCreateEventArgs e)
         {
-            if (!ActiveSessions.ContainsKey(e.Message.Id)) 
+            if (!ActiveSessions.ContainsKey(e.Message.Id))
             {
-                // Session expired or bot restarted
-                await e.Interaction.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, 
-                    new DiscordInteractionResponseBuilder().WithContent("⚠️ Session expired. Please run `/dossier` again.").AsEphemeral(true));
+                await e.Interaction.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, new DiscordInteractionResponseBuilder().WithContent("⚠️ Session expired.").AsEphemeral(true));
                 return;
             }
 
@@ -122,65 +106,97 @@ namespace Helper
             
             try 
             {
-                // 1. Navigation Tabs
+                // TABS
                 if (e.Id.StartsWith("tab_"))
                 {
                     state.CurrentTab = e.Id.Replace("tab_", "");
                     var (embed, components) = BuildInterface(state);
-                    await e.Interaction.CreateResponseAsync(InteractionResponseType.UpdateMessage, 
-                        new DiscordInteractionResponseBuilder().AddEmbed(embed).AddComponents(components));
+                    await e.Interaction.CreateResponseAsync(InteractionResponseType.UpdateMessage, new DiscordInteractionResponseBuilder().AddEmbed(embed).AddComponents(components));
                 }
-                // 2. Open Modals
+                // BUTTONS
                 else if (e.Id == "btn_edit_vitals")
                 {
                     var hp = FirestoreHelper.GetField(state.Data, "stats.mapValue.fields.hp_curr") ?? "0";
                     var temp = FirestoreHelper.GetField(state.Data, "stats.mapValue.fields.hp_temp") ?? "0";
                     var shield = FirestoreHelper.GetField(state.Data, "stats.mapValue.fields.shield_curr") ?? "0";
-
-                    var modal = new DiscordInteractionResponseBuilder()
-                        .WithTitle("EDIT VITALS")
-                        .WithCustomId($"modal_vitals_{e.Message.Id}")
+                    var modal = new DiscordInteractionResponseBuilder().WithTitle("EDIT VITALS").WithCustomId($"modal_vitals_{e.Message.Id}")
                         .AddComponents(new TextInputComponent("Current HP", "hp_curr", "Value", hp, min_length: 1, max_length: 4))
                         .AddComponents(new TextInputComponent("Temp HP", "hp_temp", "Value (0 to clear)", temp, required: false))
                         .AddComponents(new TextInputComponent("Shields", "shield_curr", "Value (0 to clear)", shield, required: false));
+                    await e.Interaction.CreateResponseAsync(InteractionResponseType.Modal, modal);
+                }
+                else if (e.Id == "btn_edit_money")
+                {
+                    var m = state.Data["fields"]?["money"]?["mapValue"]?["fields"];
+                    var u = m?["u"]?["stringValue"]?.ToString() ?? "0";
+                    var k = m?["k"]?["stringValue"]?.ToString() ?? "0";
+                    var mega = m?["m"]?["stringValue"]?.ToString() ?? "0";
+                    var g = m?["g"]?["stringValue"]?.ToString() ?? "0";
 
+                    var modal = new DiscordInteractionResponseBuilder().WithTitle("EDIT FINANCES").WithCustomId($"modal_money_{e.Message.Id}")
+                        .AddComponents(new TextInputComponent("U-Credits", "u", "Value", u))
+                        .AddComponents(new TextInputComponent("K-Credits", "k", "Value", k))
+                        .AddComponents(new TextInputComponent("M-Credits", "m", "Value", mega))
+                        .AddComponents(new TextInputComponent("G-Credits", "g", "Value", g));
+                    await e.Interaction.CreateResponseAsync(InteractionResponseType.Modal, modal);
+                }
+                 else if (e.Id == "btn_edit_psi")
+                {
+                    var curr = FirestoreHelper.GetField(state.Data, "psionics.mapValue.fields.points_curr") ?? "0";
+                    var modal = new DiscordInteractionResponseBuilder().WithTitle("PSI POINTS").WithCustomId($"modal_psi_{e.Message.Id}")
+                        .AddComponents(new TextInputComponent("Current Psi Points", "val", "Value", curr));
                     await e.Interaction.CreateResponseAsync(InteractionResponseType.Modal, modal);
                 }
                 else if (e.Id == "btn_add_item")
                 {
-                    var modal = new DiscordInteractionResponseBuilder()
-                        .WithTitle("ADD ITEM / COUNTER")
-                        .WithCustomId($"modal_add_{e.Message.Id}")
+                    // Context aware add
+                    var options = new List<DiscordSelectComponentOption> {
+                        new DiscordSelectComponentOption("Inventory Item", "inventory"),
+                        new DiscordSelectComponentOption("Weapon", "weapons"),
+                        new DiscordSelectComponentOption("Feat/Trait", "features"),
+                        new DiscordSelectComponentOption("Counter", "counters"),
+                        new DiscordSelectComponentOption("Registry Entry", "custom_table")
+                    };
+                    
+                    var modal = new DiscordInteractionResponseBuilder().WithTitle("ADD NEW ENTRY").WithCustomId($"modal_add_{e.Message.Id}")
+                        .AddComponents(new TextInputComponent("Type (inventory, weapons, features, counters)", "type", "Type code", "inventory")) // Fallback if user types
                         .AddComponents(new TextInputComponent("Name", "name", "Item Name"))
-                        .AddComponents(new TextInputComponent("Description / Value", "desc", "Description or numeric value"))
-                        .AddComponents(new TextInputComponent("Type (inventory, weapon, counter)", "type", "inventory", "inventory"));
-
+                        .AddComponents(new TextInputComponent("Desc / Value / Dmg", "desc", "Description, Dmg or Value"));
+                    
                     await e.Interaction.CreateResponseAsync(InteractionResponseType.Modal, modal);
                 }
-                // 3. Inspection (Dropdowns)
+                else if (e.Id == "btn_edit_counters")
+                {
+                     var modal = new DiscordInteractionResponseBuilder().WithTitle("EDIT COUNTER").WithCustomId($"modal_counter_{e.Message.Id}")
+                        .AddComponents(new TextInputComponent("Counter Name (Exact Match)", "name", "Name of existing counter"))
+                        .AddComponents(new TextInputComponent("New Value", "val", "Number"));
+                     await e.Interaction.CreateResponseAsync(InteractionResponseType.Modal, modal);
+                }
+                // INSPECT MENUS
                 else if (e.Id == "menu_inspect")
                 {
-                    var selectedId = e.Values.FirstOrDefault();
+                    var selectedId = e.Values.FirstOrDefault(); // Format: "type:index"
                     if (selectedId != null)
                     {
-                        var desc = FindDescription(state.Data, selectedId);
-                        await e.Interaction.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, 
-                            new DiscordInteractionResponseBuilder().WithContent($"**Info:**\n{desc}").AsEphemeral(true));
+                        var parts = selectedId.Split(':');
+                        var type = parts[0];
+                        var idx = int.Parse(parts[1]);
+                        var desc = FirestoreHelper.GetItemDescription(state.Data, type, idx);
+                        await e.Interaction.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, new DiscordInteractionResponseBuilder().WithContent(desc).AsEphemeral(true));
                     }
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Interaction Error: {ex}");
-                await e.Interaction.CreateFollowupMessageAsync(new DiscordFollowupMessageBuilder().WithContent("❌ Interface Error.").AsEphemeral(true));
+                await e.Interaction.CreateFollowupMessageAsync(new DiscordFollowupMessageBuilder().WithContent("❌ Error processing request.").AsEphemeral(true));
             }
         }
 
         // --- MODAL HANDLER ---
         private async Task OnModalSubmitted(DiscordClient sender, ModalSubmitEventArgs e)
         {
-            // Extract Message ID from Custom ID (modal_vitals_12345)
-            var parts = e.Interaction.Data.CustomId.Split('_');
+            var parts = e.Interaction.Data.CustomId.Split('_'); // modal_type_id
             if (parts.Length < 3 || !ulong.TryParse(parts[2], out ulong msgId)) return;
             if (!ActiveSessions.ContainsKey(msgId)) return;
 
@@ -191,28 +207,83 @@ namespace Helper
             {
                 if (parts[1] == "vitals")
                 {
+                    // Logic unchanged
                     var hp = e.Values["hp_curr"];
                     var temp = e.Values["hp_temp"];
                     var shield = e.Values["shield_curr"];
-
-                    // Update Local State
+                    
                     FirestoreHelper.SetField(state.Data, "stats.mapValue.fields.hp_curr", hp);
                     FirestoreHelper.SetField(state.Data, "stats.mapValue.fields.hp_temp", temp);
                     FirestoreHelper.SetField(state.Data, "stats.mapValue.fields.shield_curr", shield);
 
-                    // Send to Firebase
-                    var updates = new Dictionary<string, object>
-                    {
+                    var updates = new Dictionary<string, object> {
                         { "fields.stats.mapValue.fields.hp_curr.integerValue", int.Parse(hp) },
                         { "fields.stats.mapValue.fields.hp_temp.integerValue", int.Parse(temp) },
                         { "fields.stats.mapValue.fields.shield_curr.integerValue", int.Parse(shield) }
                     };
                     await FirestoreHelper.PatchFields(state.CharId, state.IsResistance, updates);
                 }
+                else if (parts[1] == "money")
+                {
+                    var m = new Dictionary<string, string> { {"u", e.Values["u"]}, {"k", e.Values["k"]}, {"m", e.Values["m"]}, {"g", e.Values["g"]} };
+                    FirestoreHelper.SetMap(state.Data, "money", m);
+                    await FirestoreHelper.PatchMap(state.CharId, state.IsResistance, "money", m);
+                }
+                else if (parts[1] == "psi")
+                {
+                    var val = e.Values["val"];
+                    FirestoreHelper.SetField(state.Data, "psionics.mapValue.fields.points_curr", val);
+                    await FirestoreHelper.PatchFields(state.CharId, state.IsResistance, new Dictionary<string, object> { { "fields.psionics.mapValue.fields.points_curr.integerValue", int.Parse(val) } });
+                }
+                else if (parts[1] == "counter")
+                {
+                     var name = e.Values["name"].Trim();
+                     var val = e.Values["val"];
+                     FirestoreHelper.UpdateCounter(state.Data, name, int.Parse(val));
+                     // Sync whole counters array
+                     await FirestoreHelper.SyncArray(state.CharId, state.IsResistance, state.Data, "universalis.mapValue.fields.counters");
+                }
                 else if (parts[1] == "add")
                 {
-                    await e.Interaction.CreateFollowupMessageAsync(new DiscordFollowupMessageBuilder().WithContent("⚠️ Item Addition via Discord is limited in this version.").AsEphemeral(true));
-                    return;
+                    var type = e.Values["type"].ToLower().Trim();
+                    var name = e.Values["name"];
+                    var desc = e.Values["desc"];
+                    
+                    string path = "";
+                    JObject newItem = new JObject();
+                    JObject fields = new JObject();
+                    fields["name"] = new JObject { ["stringValue"] = name };
+
+                    if (type.Contains("weapon")) {
+                        path = "combat.mapValue.fields.weapons";
+                        fields["type"] = new JObject { ["stringValue"] = "New" };
+                        fields["dmg"] = new JObject { ["stringValue"] = desc };
+                        fields["props"] = new JObject { ["stringValue"] = "" };
+                    } 
+                    else if (type.Contains("feat") || type.Contains("trait") || type.Contains("feature")) {
+                        path = "features"; // Simplified bucket
+                        fields["desc"] = new JObject { ["stringValue"] = desc };
+                    }
+                    else if (type.Contains("counter")) {
+                        path = "universalis.mapValue.fields.counters";
+                        fields["val"] = new JObject { ["integerValue"] = "0" };
+                        fields["max"] = new JObject { ["integerValue"] = desc }; // Treat desc as max
+                    }
+                    else if (type.Contains("custom") || type.Contains("registry")) {
+                        path = "universalis.mapValue.fields.custom_table";
+                         fields["desc"] = new JObject { ["stringValue"] = desc };
+                    }
+                    else {
+                        path = "combat.mapValue.fields.inventory";
+                        fields["desc"] = new JObject { ["stringValue"] = desc };
+                    }
+
+                    newItem["mapValue"] = new JObject { ["fields"] = fields };
+                    
+                    // Update Local
+                    FirestoreHelper.AddItemToArray(state.Data, path, newItem);
+                    // Sync Remote
+                    await FirestoreHelper.SyncArray(state.CharId, state.IsResistance, state.Data, path);
                 }
 
                 // Refresh UI
@@ -221,7 +292,7 @@ namespace Helper
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Modal Error: {ex}");
+                Console.WriteLine($"Modal Logic Error: {ex}");
             }
         }
 
@@ -238,260 +309,255 @@ namespace Helper
             var embed = new DiscordEmbedBuilder()
                 .WithTitle(isRes ? $"// {name.ToUpper()}" : $"PROTOCOL: {name.ToUpper()}")
                 .WithColor(color);
-
             if (!string.IsNullOrEmpty(img) && img.StartsWith("http")) embed.WithThumbnail(img);
 
+            // Calculations
+            int level = int.Parse(FirestoreHelper.GetField(data, "meta.mapValue.fields.level") ?? "1");
+            int pb = 2 + (level - 1) / 4;
+            
             // Tab Logic
             switch (state.CurrentTab)
             {
                 case "identity":
-                    var rank = FirestoreHelper.GetField(data, "meta.mapValue.fields.rank") ?? "Unranked";
-                    embed.WithDescription($"**ID:** {state.CharId}\n**Rank:** {rank}");
-                    
-                    var race = FirestoreHelper.GetField(data, "meta.mapValue.fields.race") ?? "";
-                    var cls = FirestoreHelper.GetField(data, "meta.mapValue.fields.class") ?? "";
-                    var bio = $"{race} {cls}".Trim();
-                    if (string.IsNullOrWhiteSpace(bio)) bio = "Classified";
-
-                    var arch = FirestoreHelper.GetField(data, "meta.mapValue.fields.archetype");
-                    if (string.IsNullOrWhiteSpace(arch)) arch = "N/A";
-
-                    var analysis = FirestoreHelper.GetField(data, "psych.mapValue.fields.analysis") ?? "N/A";
-                    if (string.IsNullOrWhiteSpace(analysis)) analysis = "N/A";
-                    
-                    embed.AddField("Bio", bio, true);
-                    embed.AddField("Archetype", arch, true);
-                    embed.AddField("Analysis", analysis.Substring(0, Math.Min(500, analysis.Length)), false);
+                    embed.WithDescription($"**ID:** {state.CharId}");
+                    embed.AddField("Identity", 
+                        $"**Name:** {name}\n" +
+                        $"**Class:** {FirestoreHelper.GetField(data, "meta.mapValue.fields.class")}\n" +
+                        $"**Level:** {level} (PB: +{pb})\n" +
+                        $"**Race:** {FirestoreHelper.GetField(data, "meta.mapValue.fields.race")}\n" +
+                        $"**Origin:** {FirestoreHelper.GetField(data, "meta.mapValue.fields.origin") ?? "N/A"}", false);
+                    embed.AddField("Rank", FirestoreHelper.GetField(data, "meta.mapValue.fields.rank") ?? "N/A", true);
+                    embed.AddField("Archetype", FirestoreHelper.GetField(data, "meta.mapValue.fields.archetype") ?? "N/A", true);
                     break;
 
                 case "stats":
-                    string hp = FirestoreHelper.GetField(data, "stats.mapValue.fields.hp_curr") ?? "0";
-                    string max = FirestoreHelper.GetField(data, "stats.mapValue.fields.hp_max") ?? "0";
-                    string temp = FirestoreHelper.GetField(data, "stats.mapValue.fields.hp_temp") ?? "0";
-                    string ac = FirestoreHelper.GetField(data, "stats.mapValue.fields.ac") ?? "10";
-                    string sh = FirestoreHelper.GetField(data, "stats.mapValue.fields.shield_curr") ?? "0";
-
-                    embed.AddField("VITALS", $"**HP:** {hp}/{max} {(temp!="0" ? $"(+{temp})" : "")}\n**AC:** {ac}\n**Shields:** {sh}", false);
+                    var spd = FirestoreHelper.GetField(data, "stats.mapValue.fields.speed") ?? "0";
                     
-                    var attrs = new[] { "str", "dex", "con", "int", "wis", "cha" };
-                    var attrStr = "";
-                    foreach(var a in attrs)
+                    // Calc Passive Perception
+                    int wis = int.Parse(FirestoreHelper.GetField(data, "stats.mapValue.fields.wis") ?? "10");
+                    int wisMod = (wis - 10) / 2;
+                    bool profPer = FirestoreHelper.GetSkillState(data, "perception").isProf;
+                    bool expPer = FirestoreHelper.GetSkillState(data, "perception").isExp;
+                    int ppMod = int.Parse(FirestoreHelper.GetField(data, "stats.mapValue.fields.passive_perception_mod") ?? "0");
+                    int pp = 10 + wisMod + (expPer ? pb*2 : profPer ? pb : 0) + ppMod;
+
+                    embed.AddField("Sensors & Mobility", $"**Speed:** {spd}m\n**Passive Perception:** {pp}", false);
+
+                    string savesStr = "";
+                    foreach(var a in ATTRIBUTES)
                     {
-                        var valStr = FirestoreHelper.GetField(data, $"stats.mapValue.fields.{a}") ?? "10";
-                        var val = int.TryParse(valStr, out int v) ? v : 10;
+                        bool isProf = FirestoreHelper.GetBool(data, $"saves.mapValue.fields.prof_{a}");
+                        savesStr += $"{(isProf ? "✅" : "⬛")} {a.ToUpper()}\n";
+                    }
+                    embed.AddField("Save Proficiencies", savesStr, true);
+
+                    var attrStr = "";
+                    foreach(var a in ATTRIBUTES)
+                    {
+                        var val = int.Parse(FirestoreHelper.GetField(data, $"stats.mapValue.fields.{a}") ?? "10");
                         var mod = (val - 10) / 2;
                         attrStr += $"**{a.ToUpper()}:** {val} ({(mod>=0?"+":"")}{mod})\n";
                     }
-                    if (string.IsNullOrWhiteSpace(attrStr)) attrStr = "N/A";
-                    embed.AddField("ATTRIBUTES", attrStr, false);
+                    embed.AddField("Attributes", attrStr, true);
                     break;
 
-                case "combat":
+                case "skills":
+                    var sb = new StringBuilder();
+                    sb.Append("```");
+                    foreach(var s in SKILLS)
+                    {
+                        var st = FirestoreHelper.GetSkillState(data, s.key);
+                        var attrVal = int.Parse(FirestoreHelper.GetField(data, $"stats.mapValue.fields.{s.attr}") ?? "10");
+                        var mod = (attrVal - 10) / 2;
+                        var total = mod + st.bonus + (st.isExp ? pb*2 : st.isProf ? pb : 0);
+                        
+                        string mark = st.isExp ? "!!" : st.isProf ? "! " : "  ";
+                        sb.AppendLine($"{mark}{s.name.PadRight(18)}: {(total>=0?"+":"")}{total}");
+                    }
+                    sb.Append("```");
+                    embed.WithDescription(sb.ToString());
+                    break;
+
+                case "gear":
+                    var money = data["fields"]?["money"]?["mapValue"]?["fields"];
+                    embed.AddField("Finances", 
+                        $"**U:** {money?["u"]?["stringValue"] ?? "0"} | **K:** {money?["k"]?["stringValue"] ?? "0"} | **M:** {money?["m"]?["stringValue"] ?? "0"} | **G:** {money?["g"]?["stringValue"] ?? "0"}", false);
+                    
                     var weapons = FirestoreHelper.GetArray(data, "combat.mapValue.fields.weapons");
-                    var sbW = new StringBuilder();
-                    if (weapons.Count == 0) sbW.Append("No weapons.");
+                    var wStr = new StringBuilder();
+                    if(weapons.Count == 0) wStr.Append("No weapons.");
                     foreach(var w in weapons)
                     {
-                         var wn = w["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString() ?? "Unknown";
-                         var dmg = w["mapValue"]?["fields"]?["dmg"]?["stringValue"]?.ToString() ?? "";
-                         sbW.AppendLine($"• **{wn}** {dmg}");
+                         var n = w["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString();
+                         var d = w["mapValue"]?["fields"]?["dmg"]?["stringValue"]?.ToString();
+                         wStr.AppendLine($"• **{n}** ({d})");
                     }
-                    var wStr = sbW.ToString().Trim();
-                    if (string.IsNullOrWhiteSpace(wStr)) wStr = "No weapons.";
-                    embed.AddField("WEAPONS", wStr);
-
-                    var inv = FirestoreHelper.GetArray(data, "combat.mapValue.fields.inventory");
-                    var sbI = new StringBuilder();
-                    if (inv.Count == 0) sbI.Append("Empty.");
-                    int count = 0;
-                    foreach(var i in inv)
-                    {
-                        if(count++ > 10) { sbI.AppendLine("...and more"); break; }
-                        var iname = i["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString() ?? "Item";
-                        sbI.AppendLine($"• {iname}");
-                    }
-                    var iStr = sbI.ToString().Trim();
-                    if (string.IsNullOrWhiteSpace(iStr)) iStr = "Empty.";
-                    embed.AddField("INVENTORY", iStr);
+                    embed.AddField("Weapons", wStr.ToString());
                     break;
 
-                case "features":
-                    var feats = FirestoreHelper.GetArray(data, "features");
-                    var sbF = new StringBuilder();
-                    foreach(var f in feats.Take(10))
+                case "feats":
+                    var traits = FirestoreHelper.GetArray(data, "traits");
+                    var features = FirestoreHelper.GetArray(data, "features");
+                    var abilities = FirestoreHelper.GetArray(data, "abilities");
+                    
+                    embed.AddField("Traits & Features", FormatList(traits.Concat(features)), false);
+                    embed.AddField("Abilities", FormatList(abilities), false);
+
+                    var profs = FirestoreHelper.GetArray(data, "profs.mapValue.fields.armory")
+                        .Concat(FirestoreHelper.GetArray(data, "profs.mapValue.fields.tools"));
+                    
+                    // Simple string list for profs
+                    var pStr = string.Join(", ", profs.Select(p => p.ToString())); // Simplified as these are usually strings in FS? Actually array of strings.
+                    // Wait, profs are strings in FS. 
+                    // FirestoreHelper.GetArray returns objects. In FS structure, array values can be stringValue.
+                    // Let's check GetArray implementation. It returns JArray of values.
+                    // For strings: { "stringValue": "Common" }
+                    
+                    var profSb = new StringBuilder();
+                    foreach(var p in profs) profSb.Append((p["stringValue"]?.ToString() ?? "") + ", ");
+                    embed.AddField("Proficiencies", profSb.Length > 0 ? profSb.ToString().TrimEnd(',', ' ') : "None", false);
+                    break;
+
+                case "psi":
+                    var psi = data["fields"]?["psionics"]?["mapValue"]?["fields"];
+                    var baseAttr = psi?["base_attr"]?["stringValue"]?.ToString() ?? "int";
+                    var casterType = psi?["caster_type"]?["stringValue"]?.ToString() ?? "1";
+                    var curr = psi?["points_curr"]?["integerValue"]?.ToString() ?? "0";
+                    var modPts = int.Parse(psi?["mod_points"]?["integerValue"]?.ToString() ?? "0");
+
+                    // Calc Max Pts
+                    double mult = casterType == "0.5" ? 3 : casterType == "0.33" ? 2 : 6;
+                    int maxPts = (int)((mult + modPts) * level);
+
+                    embed.AddField("Psionics Status", 
+                        $"**Base:** {baseAttr.ToUpper()}\n" +
+                        $"**Type:** {casterType}x\n" +
+                        $"**Psi Points:** {curr} / {maxPts}", false);
+                    
+                    var spells = FirestoreHelper.GetArray(data, "psionics.mapValue.fields.spells");
+                    embed.AddField("Spells Registered", $"{spells.Count} entries found. Use Inspect to view details.", false);
+                    break;
+
+                case "univ":
+                    var uni = data["fields"]?["universalis"]?["mapValue"]?["fields"];
+                    var saveBase = int.Parse(uni?["save_base"]?["integerValue"]?.ToString() ?? "8");
+                    var saveAttr = uni?["save_attr"]?["stringValue"]?.ToString() ?? "int";
+                    var attrVal = int.Parse(FirestoreHelper.GetField(data, $"stats.mapValue.fields.{saveAttr}") ?? "10");
+                    var saveTotal = saveBase + (attrVal-10)/2 + pb;
+
+                    embed.AddField("Custom Save", $"**DC:** {saveTotal} (Base {saveBase} + {saveAttr.ToUpper()} + PB)", false);
+
+                    var counters = FirestoreHelper.GetArray(data, "universalis.mapValue.fields.counters");
+                    var cStr = new StringBuilder();
+                    foreach(var c in counters)
                     {
-                        var fn = f["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString() ?? "Feat";
-                        sbF.AppendLine($"• {fn}");
+                        var n = c["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString();
+                        var v = c["mapValue"]?["fields"]?["val"]?["integerValue"]?.ToString();
+                        var m = c["mapValue"]?["fields"]?["max"]?["integerValue"]?.ToString();
+                        cStr.AppendLine($"• **{n}**: {v} / {m}");
                     }
-                    var fStr = sbF.ToString().Trim();
-                    if (string.IsNullOrWhiteSpace(fStr)) fStr = "No registered features.";
-                    embed.AddField("FEATURES / ABILITIES", fStr);
+                    embed.AddField("Counters", cStr.Length > 0 ? cStr.ToString() : "None", false);
                     break;
             }
 
             // COMPONENTS
             var rows = new List<DiscordActionRowComponent>();
 
-            // Row 1: Navigation
-            var btnStyle = isRes ? ButtonStyle.Success : ButtonStyle.Primary;
-            var navRow = new DiscordActionRowComponent(new[]
-            {
-                new DiscordButtonComponent(btnStyle, "tab_identity", "ID", state.CurrentTab == "identity"),
-                new DiscordButtonComponent(btnStyle, "tab_stats", "STATS", state.CurrentTab == "stats"),
-                new DiscordButtonComponent(btnStyle, "tab_combat", "GEAR", state.CurrentTab == "combat"),
-                new DiscordButtonComponent(btnStyle, "tab_features", "FEATS", state.CurrentTab == "features")
-            });
-            rows.Add(navRow);
+            // Row 1: Main Tabs
+            rows.Add(new DiscordActionRowComponent(new[] {
+                new DiscordButtonComponent(btnStyle, "tab_identity", "ID", state.CurrentTab=="identity"),
+                new DiscordButtonComponent(btnStyle, "tab_stats", "STATS", state.CurrentTab=="stats"),
+                new DiscordButtonComponent(btnStyle, "tab_skills", "SKILLS", state.CurrentTab=="skills"),
+                new DiscordButtonComponent(btnStyle, "tab_gear", "GEAR", state.CurrentTab=="gear")
+            }));
 
-            // Row 2: Actions
-            var actionRow = new DiscordActionRowComponent(new[]
-            {
-                new DiscordButtonComponent(ButtonStyle.Secondary, "btn_edit_vitals", "Update Vitals"),
-                new DiscordButtonComponent(ButtonStyle.Secondary, "btn_add_item", "Add Item")
-            });
-            rows.Add(actionRow);
+            // Row 2: Extra Tabs
+            rows.Add(new DiscordActionRowComponent(new[] {
+                new DiscordButtonComponent(btnStyle, "tab_feats", "FEATS", state.CurrentTab=="feats"),
+                new DiscordButtonComponent(btnStyle, "tab_psi", "PSI", state.CurrentTab=="psi"),
+                new DiscordButtonComponent(btnStyle, "tab_univ", "UNIV", state.CurrentTab=="univ")
+            }));
 
-            // Row 3: Inspect (Conditional)
-            if (state.CurrentTab == "combat" || state.CurrentTab == "features")
-            {
-                var options = new List<DiscordSelectComponentOption>();
-                var targetArray = state.CurrentTab == "combat" 
-                    ? FirestoreHelper.GetArray(data, "combat.mapValue.fields.inventory")
-                    : FirestoreHelper.GetArray(data, "features");
+            // Row 3: Actions (Context Sensitive)
+            var actions = new List<DiscordComponent>();
+            actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_edit_vitals", "Edit Vitals"));
+            
+            if(state.CurrentTab == "gear") actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_edit_money", "Finances"));
+            if(state.CurrentTab == "psi") actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_edit_psi", "Edit Points"));
+            if(state.CurrentTab == "univ") actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_edit_counters", "Set Counter"));
+            
+            actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_add_item", "+ Add Item/Entry"));
+            rows.Add(new DiscordActionRowComponent(actions));
 
-                int idx = 0;
-                foreach (var item in targetArray.Take(25)) // Discord limit 25
+            // Row 4: Inspect (Dropdown)
+            var options = new List<DiscordSelectComponentOption>();
+            string listPath = "";
+            string typePrefix = ""; // used to id what array to look in later
+
+            if (state.CurrentTab == "gear") { listPath = "combat.mapValue.fields.weapons"; typePrefix = "weapon"; }
+            else if (state.CurrentTab == "feats") { listPath = "features"; typePrefix = "feat"; } // simplified, usually iterate multiple
+            else if (state.CurrentTab == "psi") { listPath = "psionics.mapValue.fields.spells"; typePrefix = "spell"; }
+            else if (state.CurrentTab == "univ") { listPath = "universalis.mapValue.fields.custom_table"; typePrefix = "registry"; }
+
+            if (!string.IsNullOrEmpty(listPath))
+            {
+                // Special handling for merged lists in Feats
+                if (state.CurrentTab == "feats")
                 {
-                    var iName = item["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString();
-                    // Ensure Option Label/Value is not empty
-                    if (!string.IsNullOrWhiteSpace(iName))
-                    {
-                        options.Add(new DiscordSelectComponentOption(iName, iName)); 
-                    }
-                    idx++;
+                    AddOptions(options, data, "features", "feat");
+                    AddOptions(options, data, "abilities", "ability", options.Count);
+                    AddOptions(options, data, "traits", "trait", options.Count);
                 }
-
-                if (options.Count > 0)
+                else
                 {
-                    rows.Add(new DiscordActionRowComponent(new [] {
-                        new DiscordSelectComponent("menu_inspect", "Inspect Item...", options)
-                    }));
+                    AddOptions(options, data, listPath, typePrefix);
                 }
+            }
+
+            if (options.Count > 0)
+            {
+                rows.Add(new DiscordActionRowComponent(new [] {
+                    new DiscordSelectComponent("menu_inspect", "Inspect Detail...", options.Take(25).ToList()) // Limit 25
+                }));
             }
 
             return (embed.Build(), rows);
         }
 
-        private static string FindDescription(JObject data, string itemName)
+        private static void AddOptions(List<DiscordSelectComponentOption> opts, JObject data, string path, string prefix, int offset = 0)
         {
-            var arrays = new[] { "combat.mapValue.fields.inventory", "combat.mapValue.fields.weapons", "features", "abilities", "traits" };
-            foreach(var path in arrays)
+            var arr = FirestoreHelper.GetArray(data, path);
+            for(int i=0; i<arr.Count; i++)
             {
-                var list = FirestoreHelper.GetArray(data, path);
-                foreach(var item in list)
-                {
-                    var n = item["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString();
-                    if (n == itemName)
-                    {
-                         var d = item["mapValue"]?["fields"]?["desc"]?["stringValue"]?.ToString();
-                         var p = item["mapValue"]?["fields"]?["props"]?["stringValue"]?.ToString();
-                         if (!string.IsNullOrEmpty(d)) return d;
-                         if (!string.IsNullOrEmpty(p)) return p;
-                         return "No description available.";
-                    }
-                }
+                var n = arr[i]["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString();
+                if(!string.IsNullOrWhiteSpace(n)) opts.Add(new DiscordSelectComponentOption(n, $"{prefix}:{i+offset}")); // Store index
             }
-            return "Item not found.";
         }
-        
-        private string FindEnvFile()
+
+        private static string FormatList(IEnumerable<JToken> items)
         {
-            try 
+            var sb = new StringBuilder();
+            int c = 0;
+            foreach(var i in items)
             {
+                if(c++ > 15) { sb.AppendLine("...and more"); break; }
+                var n = i["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString();
+                if(!string.IsNullOrEmpty(n)) sb.AppendLine($"• {n}");
+            }
+            return sb.Length > 0 ? sb.ToString() : "None.";
+        }
+
+        private static string FindEnvFile()
+        {
+            try {
                 var current = Directory.GetCurrentDirectory();
-                while (current != null)
-                {
+                while (current != null) {
                     var path = Path.Combine(current, ".env");
                     if (File.Exists(path)) return path;
                     current = Directory.GetParent(current)?.FullName;
                 }
             } catch {}
             return null;
-        }
-    }
-
-    // --- SLASH COMMANDS MODULE ---
-    public class DossierSlashCommands : ApplicationCommandModule
-    {
-        [SlashCommand("dossier", "Retrieve a character dossier from the Ordo Registry.")]
-        public async Task GetDossier(InteractionContext ctx, [Option("id", "Character ID or URL")] string input)
-        {
-            // Defer response because Firebase fetch might take a moment
-            await ctx.CreateResponseAsync(InteractionResponseType.DeferredChannelMessageWithSource);
-
-            try
-            {
-                string id = Program.ExtractId(input);
-                if (string.IsNullOrEmpty(id)) 
-                { 
-                    await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent("⚠️ Invalid ID or URL provided.")); 
-                    return; 
-                }
-
-                var (data, isRes) = await FirestoreHelper.FetchProtocolData(id);
-
-                if (data == null)
-                {
-                    await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent("❌ Protocol not found in the database."));
-                    return;
-                }
-
-                var state = new UserState { CharId = id, IsResistance = isRes, Data = data, CurrentTab = "identity" };
-                
-                var (embed, components) = Program.BuildInterface(state);
-                
-                // Edit the deferred response with the actual content
-                var msg = await ctx.EditResponseAsync(new DiscordWebhookBuilder().AddEmbed(embed).AddComponents(components));
-                
-                // Cache state using the message ID of the response
-                if (Program.ActiveSessions.ContainsKey(msg.Id)) Program.ActiveSessions.Remove(msg.Id);
-                Program.ActiveSessions.Add(msg.Id, state);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Command Error: {ex}");
-                await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent($"❌ System Error: {ex.Message}"));
-            }
-        }
-    }
-
-    // --- TEXT COMMANDS MODULE (Legacy support) ---
-    public class DossierCommands : BaseCommandModule
-    {
-        [Command("dossier")]
-        public async Task GetDossier(CommandContext ctx, [Description("ID")] string input)
-        {
-            await ctx.TriggerTypingAsync();
-            string id = Program.ExtractId(input);
-            if (string.IsNullOrEmpty(id)) { await ctx.RespondAsync("⚠️ Invalid ID"); return; }
-
-            var (data, isRes) = await FirestoreHelper.FetchProtocolData(id);
-
-            if (data == null)
-            {
-                await ctx.RespondAsync("❌ Protocol not found.");
-                return;
-            }
-
-            var state = new UserState { CharId = id, IsResistance = isRes, Data = data, CurrentTab = "identity" };
-            
-            var (embed, components) = Program.BuildInterface(state);
-            var builder = new DiscordMessageBuilder().AddEmbed(embed).AddComponents(components);
-            
-            var msg = await ctx.RespondAsync(builder);
-            
-            if (Program.ActiveSessions.ContainsKey(msg.Id)) Program.ActiveSessions.Remove(msg.Id);
-            Program.ActiveSessions.Add(msg.Id, state);
         }
     }
 
@@ -502,22 +568,55 @@ namespace Helper
         {
             JToken current = root["fields"];
             if (current == null) return null;
-
             var parts = path.Split('.');
             foreach (var part in parts)
             {
                 current = current[part];
                 if (current == null) return null;
             }
-
-            // It extracts the Value object (e.g., { "integerValue": "10" } or { "stringValue": "foo" })
             return current["stringValue"]?.ToString() ?? current["integerValue"]?.ToString();
+        }
+
+        public static bool GetBool(JObject root, string path)
+        {
+             JToken current = root["fields"];
+             if (current == null) return false;
+             foreach (var part in path.Split('.')) {
+                current = current[part];
+                if (current == null) return false;
+             }
+             return current["booleanValue"]?.ToObject<bool>() ?? false;
+        }
+
+        public static JArray GetArray(JObject root, string path)
+        {
+            JToken current = root["fields"];
+            if (current == null) return new JArray();
+            foreach (var part in path.Split('.')) {
+                current = current[part];
+                if (current == null) return new JArray();
+            }
+            return (JArray)(current["arrayValue"]?["values"]) ?? new JArray();
+        }
+
+        public static (bool isProf, bool isExp, int bonus) GetSkillState(JObject data, string skill)
+        {
+            var skills = data["fields"]?["skills"]?["mapValue"]?["fields"]?["data"]?["mapValue"]?["fields"];
+            if (skills == null || skills[skill] == null) return (false, false, 0);
+            
+            var tuple = skills[skill]?["arrayValue"]?["values"] as JArray;
+            if (tuple == null || tuple.Count < 3) return (false, false, 0);
+
+            return (
+                tuple[0]["booleanValue"]?.ToObject<bool>() ?? false,
+                tuple[1]["booleanValue"]?.ToObject<bool>() ?? false,
+                int.Parse(tuple[2]["integerValue"]?.ToString() ?? "0")
+            );
         }
 
         public static void SetField(JObject root, string path, string value)
         {
             JToken current = root["fields"];
-            if (current == null) return;
             var parts = path.Split('.');
             foreach (var part in parts)
             {
@@ -528,30 +627,91 @@ namespace Helper
             else current["stringValue"] = value;
         }
 
-        public static JArray GetArray(JObject root, string path)
+        public static void SetMap(JObject root, string path, Dictionary<string, string> values)
+        {
+             // Simplified for "money" which is flat
+             var target = root["fields"]?[path]?["mapValue"]?["fields"];
+             if(target == null) return;
+             foreach(var kv in values)
+             {
+                 if(target[kv.Key] != null) target[kv.Key]["stringValue"] = kv.Value;
+             }
+        }
+        
+        public static void UpdateCounter(JObject root, string name, int val)
+        {
+            var arr = GetArray(root, "universalis.mapValue.fields.counters");
+            foreach(var c in arr)
+            {
+                if(c["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString() == name)
+                {
+                    c["mapValue"]["fields"]["val"]["integerValue"] = val.ToString();
+                    return;
+                }
+            }
+        }
+
+        public static void AddItemToArray(JObject root, string path, JObject item)
         {
             JToken current = root["fields"];
-            if (current == null) return new JArray();
-            var parts = path.Split('.');
-            foreach (var part in parts)
-            {
-                current = current[part];
-                if (current == null) return new JArray();
+            foreach (var part in path.Split('.')) current = current[part];
+            
+            if(current["arrayValue"] == null) current["arrayValue"] = new JObject();
+            if(current["arrayValue"]["values"] == null) current["arrayValue"]["values"] = new JArray();
+            
+            ((JArray)current["arrayValue"]["values"]).Add(item);
+        }
+
+        public static string GetItemDescription(JObject data, string type, int index)
+        {
+            string path = "";
+            int offset = 0;
+
+            if (type == "weapon") path = "combat.mapValue.fields.weapons";
+            else if (type == "spell") path = "psionics.mapValue.fields.spells";
+            else if (type == "registry") path = "universalis.mapValue.fields.custom_table";
+            else if (type == "feat") path = "features";
+            else if (type == "ability") { path = "abilities"; offset = 0; } // Logic handled in caller for index?
+            else if (type == "trait") { path = "traits"; offset = 0; }
+
+            // Note: The index passed from select menu for Feats/Abilities/Traits was shifted.
+            // But here we need to find the object in the correct array.
+            // Simplified approach: Re-fetch arrays in same order as BuildInterface and find element by absolute index?
+            // Actually, simpler: BuildInterface encoded prefix.
+            
+            var arr = GetArray(data, path);
+            if (index >= arr.Count) return "Item not found (Index mismatch).";
+
+            var item = arr[index]["mapValue"]?["fields"];
+            if (item == null) return "No data.";
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"**{item["name"]?["stringValue"]}**");
+            
+            if (type == "weapon") {
+                sb.AppendLine($"Damage: {item["dmg"]?["stringValue"]}");
+                sb.AppendLine($"Props: {item["props"]?["stringValue"]}");
             }
-            return (JArray)(current["arrayValue"]?["values"]) ?? new JArray();
+            else if (type == "spell") {
+                sb.AppendLine($"Time: {item["time"]?["stringValue"]} | Range: {item["range"]?["stringValue"]}");
+                sb.AppendLine($"Dur: {item["dur"]?["stringValue"]} | Cost: {item["cost"]?["integerValue"] ?? item["cost"]?["stringValue"]}");
+            }
+            
+            var desc = item["desc"]?["stringValue"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(desc)) sb.AppendLine($"\n{desc}");
+
+            return sb.ToString();
         }
 
         public static async Task<(JObject, bool)> FetchProtocolData(string id)
         {
             string urlEmp = $"https://firestore.googleapis.com/v1/projects/{Program.PROJECT_ID}/databases/(default)/documents/artifacts/{Program.APP_ID}/public/data/protocols/{id}?key={Program.API_KEY}";
             var res = await Program.HttpClient.GetAsync(urlEmp);
-            if (res.IsSuccessStatusCode)
-                return (JObject.Parse(await res.Content.ReadAsStringAsync()), false);
+            if (res.IsSuccessStatusCode) return (JObject.Parse(await res.Content.ReadAsStringAsync()), false);
 
             string urlRes = $"https://firestore.googleapis.com/v1/projects/{Program.PROJECT_ID}/databases/(default)/documents/artifacts/{Program.APP_ID}/resistance/data/protocols/{id}?key={Program.API_KEY}";
             res = await Program.HttpClient.GetAsync(urlRes);
-            if (res.IsSuccessStatusCode)
-                return (JObject.Parse(await res.Content.ReadAsStringAsync()), true);
+            if (res.IsSuccessStatusCode) return (JObject.Parse(await res.Content.ReadAsStringAsync()), true);
 
             return (null, false);
         }
@@ -559,41 +719,144 @@ namespace Helper
         public static async Task PatchFields(string id, bool isRes, Dictionary<string, object> updates)
         {
             string collection = isRes ? "resistance/data/protocols" : "public/data/protocols";
-            string baseUrl = $"https://firestore.googleapis.com/v1/projects/{Program.PROJECT_ID}/databases/(default)/documents/artifacts/{Program.APP_ID}/{collection}/{id}";
+            string url = $"https://firestore.googleapis.com/v1/projects/{Program.PROJECT_ID}/databases/(default)/documents/artifacts/{Program.APP_ID}/{collection}/{id}";
             
-            var mask = string.Join("&", updates.Keys.Select(k => $"updateMask.fieldPaths={k.Replace("fields.", "").Replace(".integerValue", "").Replace(".stringValue", "")}"));
-            string url = $"{baseUrl}?{mask}&key={Program.API_KEY}";
-            
-            var jsonBody = new JObject();
-            var fields = new JObject();
-            jsonBody["fields"] = fields;
+            // Construct Update Mask
+            var maskParts = updates.Keys.Select(k => "updateMask.fieldPaths=" + k.Replace("fields.", "").Replace(".integerValue", "").Replace(".stringValue", ""));
+            url += "?" + string.Join("&", maskParts) + "&key=" + Program.API_KEY;
 
-            var stats = new JObject();
-            var mapVal = new JObject();
-            var sFields = new JObject();
-            
-            foreach(var kvp in updates)
-            {
-                var k = kvp.Key;
-                var val = kvp.Value;
-                var varName = k.Split('.')[4]; 
-                var valObj = new JObject();
-                valObj["integerValue"] = val.ToString();
-                sFields[varName] = valObj;
+            // Construct Body (Deep Merge)
+            JObject body = new JObject();
+            foreach(var kv in updates) {
+                // Determine path structure (e.g. fields -> stats -> mapValue -> fields -> hp_curr -> integerValue)
+                var parts = kv.Key.Split('.');
+                JToken current = body;
+                for(int i=0; i<parts.Length-1; i++) {
+                    if (current[parts[i]] == null) current[parts[i]] = new JObject();
+                    current = current[parts[i]];
+                }
+                current[parts.Last()] = JToken.FromObject(kv.Value);
             }
 
-            mapVal["fields"] = sFields;
-            stats["mapValue"] = mapVal;
-            fields["stats"] = stats;
+            var content = new StringContent(body.ToString(), Encoding.UTF8, "application/json");
+            await Program.HttpClient.PatchAsync(url, content);
+        }
 
-            var content = new StringContent(jsonBody.ToString(), Encoding.UTF8, "application/json");
-            
-            var request = new HttpRequestMessage(new HttpMethod("PATCH"), url) { Content = content };
-            var response = await Program.HttpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                Console.WriteLine($"Patch Error: {response.StatusCode}");
+        public static async Task PatchMap(string id, bool isRes, string mapName, Dictionary<string, string> values)
+        {
+            // Specifically for Money (flat map)
+            var updates = new Dictionary<string, object>();
+            foreach(var kv in values) {
+                updates[$"fields.{mapName}.mapValue.fields.{kv.Key}.stringValue"] = kv.Value;
             }
+            await PatchFields(id, isRes, updates);
+        }
+
+        public static async Task SyncArray(string id, bool isRes, JObject fullData, string arrayPath)
+        {
+            // Extract the full array from local JObject and send it via PATCH
+            // This replaces the entire array in Firestore
+            var arr = GetArray(fullData, arrayPath);
+            
+            string collection = isRes ? "resistance/data/protocols" : "public/data/protocols";
+            string url = $"https://firestore.googleapis.com/v1/projects/{Program.PROJECT_ID}/databases/(default)/documents/artifacts/{Program.APP_ID}/{collection}/{id}";
+            
+            // Mask is simply the path to the array
+            url += $"?updateMask.fieldPaths={arrayPath}&key={Program.API_KEY}";
+
+            // Build body structure matching the path
+            JObject body = new JObject();
+            JObject fields = new JObject();
+            body["fields"] = fields;
+
+            // Manual path reconstruction for the body
+            // Example path: combat.mapValue.fields.inventory
+            var parts = arrayPath.Split('.');
+            JToken current = fields;
+            foreach(var p in parts) {
+                if(current[p] == null) current[p] = new JObject();
+                current = current[p];
+            }
+            
+            // Set the array value
+            JObject arrayVal = new JObject();
+            arrayVal["values"] = arr;
+            current.Parent.Replace(arrayVal); // Hacky replacement: previous loop creates an object, we need to set "arrayValue": { values: ... }
+            
+            // Better reconstruction:
+            // The mask is `combat.inventory`. The Body must coincide.
+            // Actually, we can just grab the JToken from fullData and place it into a fresh root structure?
+            // No, JObject structure in fullData includes "fields".
+            
+            // Let's rely on constructing the deep object again properly.
+            JObject root = new JObject();
+            JObject f = new JObject();
+            root["fields"] = f;
+            
+            JToken ptr = f;
+            var pathParts = arrayPath.Split('.'); // e.g. ["combat", "mapValue", "fields", "inventory"]
+            
+            for(int i=0; i<pathParts.Length - 1; i++) {
+                 ptr[pathParts[i]] = new JObject();
+                 ptr = ptr[pathParts[i]];
+            }
+            
+            // The last part (e.g. "inventory") needs to hold "arrayValue"
+            JObject av = new JObject();
+            av["values"] = arr;
+            
+            // However, the path in 'fullData' is `fields -> combat -> mapValue -> fields -> inventory -> arrayValue`
+            // The `arrayPath` argument is likely just `combat.mapValue.fields.inventory` (relative to fields).
+            // So if pathParts.Last() is "inventory", then ptr["inventory"] should be { "arrayValue": { ... } }
+            
+            JObject arrayContainer = new JObject();
+            arrayContainer["arrayValue"] = av;
+            
+            ptr[pathParts.Last()] = arrayContainer;
+
+            var content = new StringContent(root.ToString(), Encoding.UTF8, "application/json");
+            var response = await Program.HttpClient.PatchAsync(url, content);
+            if(!response.IsSuccessStatusCode) Console.WriteLine("Sync Array Failed: " + response.StatusCode);
+        }
+    }
+    
+    // Slash & Text Commands (Boilerplate)
+    public class DossierSlashCommands : ApplicationCommandModule
+    {
+        [SlashCommand("dossier", "Open Dossier")]
+        public async Task GetDossier(InteractionContext ctx, [Option("id", "ID")] string input) {
+            await ctx.CreateResponseAsync(InteractionResponseType.DeferredChannelMessageWithSource);
+            await Program.ProcessDossierRequest(ctx.Client, ctx.Channel, ctx.User, input, 
+                async (b) => await ctx.EditResponseAsync(b));
+        }
+    }
+
+    public class DossierCommands : BaseCommandModule
+    {
+        [Command("dossier")]
+        public async Task GetDossier(CommandContext ctx, [Description("ID")] string input) {
+            await ctx.TriggerTypingAsync();
+            await Program.ProcessDossierRequest(ctx.Client, ctx.Channel, ctx.User, input, 
+                async (b) => await ctx.RespondAsync(b));
+        }
+    }
+
+    // Shared Logic
+    public static partial class Program 
+    {
+        public static async Task ProcessDossierRequest(DiscordClient client, DiscordChannel channel, DiscordUser user, string input, Func<DiscordWebhookBuilder, Task<DiscordMessage>> sendFunc)
+        {
+            try {
+                string id = ExtractId(input);
+                if (string.IsNullOrEmpty(id)) { await sendFunc(new DiscordWebhookBuilder().WithContent("⚠️ Invalid ID")); return; }
+                var (data, isRes) = await FirestoreHelper.FetchProtocolData(id);
+                if (data == null) { await sendFunc(new DiscordWebhookBuilder().WithContent("❌ Not found")); return; }
+                var state = new UserState { CharId = id, IsResistance = isRes, Data = data, CurrentTab = "identity" };
+                var (embed, components) = BuildInterface(state);
+                var msg = await sendFunc(new DiscordWebhookBuilder().AddEmbed(embed).AddComponents(components));
+                if (ActiveSessions.ContainsKey(msg.Id)) ActiveSessions.Remove(msg.Id);
+                ActiveSessions.Add(msg.Id, state);
+            } catch (Exception ex) { Console.WriteLine(ex); await sendFunc(new DiscordWebhookBuilder().WithContent("System Error")); }
         }
     }
 }
