@@ -34,7 +34,6 @@ interface DragState {
 }
 
 // --- STYLED COMPONENTS (Internal) ---
-// Retaining TerminalInput for text, but removing generic number input usage
 const TerminalInput: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => (
     <input {...props} className={`bg-[#051a05] border border-[#38ff12] text-[#38ff12] px-2 py-1 font-mono outline-none focus:bg-[#0a2e0a] focus:shadow-[0_0_5px_#38ff12] ${props.className || ''}`} />
 );
@@ -242,6 +241,12 @@ const ResistanceDossier: React.FC = () => {
   const pb = 2 + Math.floor((level - 1) / 4);
   const getAttrMod = (attr: keyof Attributes) => getMod(data.stats[attr] || 10);
   
+  // Passive Perception
+  const wisMod = getMod(data.stats.wis);
+  const perSkill = data.skills.data['perception'] || [false, false, 0];
+  const perBonus = (perSkill[1] ? pb * 2 : (perSkill[0] ? pb : 0)) + perSkill[2];
+  const passivePerception = 10 + wisMod + perBonus + (data.stats.passive_perception_mod || 0);
+
   // Psi Calc
   const psiBaseAttr = data.psionics.base_attr;
   const psiMod = getMod(data.stats[psiBaseAttr]);
@@ -386,7 +391,7 @@ const ResistanceDossier: React.FC = () => {
             ) : (
             <div className="max-w-7xl mx-auto">
                 
-                {/* --- MAIN TAB --- */}
+                {/* --- MAIN TAB (Identity) --- */}
                 {activeTab === 'main' && (
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                         <div className="md:col-span-4 flex flex-col gap-4">
@@ -480,9 +485,25 @@ const ResistanceDossier: React.FC = () => {
                                         <span>Класс Брони (AC):</span>
                                         <ResistanceNumberInput className="w-20 font-bold text-2xl" value={data.stats.ac} onChange={e => update(d => d.stats.ac = parseInt(e.target.value))} />
                                     </div>
-                                    <div className="flex justify-between items-center">
-                                        <span>Скорость (Мод):</span>
-                                        <ResistanceNumberInput className="w-20" value={data.stats.speed_mod} onChange={e => update(d => d.stats.speed_mod = parseInt(e.target.value))} />
+                                    <div className="flex flex-col gap-2 pt-2">
+                                        <div className="flex justify-between items-center">
+                                            <span>Базовая Скорость:</span>
+                                            <ResistanceNumberInput step={1.5} min={0} className="w-20 text-center" value={data.stats.speed} onChange={e => update(d => d.stats.speed = parseFloat(e.target.value))} />
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span>Рывки:</span>
+                                            <ResistanceNumberInput step={1} min={0} className="w-20 text-center" value={data.stats.dashes} onChange={e => update(d => d.stats.dashes = parseInt(e.target.value))} />
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-2 pt-4 border-t border-[#1a5c0b]">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-white font-bold">Пассивная Внимательность:</span>
+                                            <span className="text-2xl font-tech font-bold text-[#38ff12]">{passivePerception}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-sm">
+                                            <span className="text-[#1a5c0b]">Вольный Модификатор:</span>
+                                            <ResistanceNumberInput className="w-16 border-b border-[#38ff12] text-center text-white" value={data.stats.passive_perception_mod || 0} onChange={e => update(d => d.stats.passive_perception_mod = parseInt(e.target.value))} />
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -513,7 +534,7 @@ const ResistanceDossier: React.FC = () => {
                     </div>
                 )}
 
-                {/* --- FEATURES TAB (Возможности) --- */}
+                {/* ... FEATURES, EQUIPMENT, DATA, PSI (Unchanged logic, just ensure existing renders) ... */}
                 {activeTab === 'features' && (
                     <div>
                         <div className="flex gap-2 mb-4 flex-wrap">
@@ -556,7 +577,6 @@ const ResistanceDossier: React.FC = () => {
                                 </table>
                             </div>
                         )}
-
                         {(subTab === 'Умения' || subTab === 'Особенности' || subTab === 'Черты') && (
                             <div className="border border-[#1a5c0b] p-4 bg-[#0a100a]">
                                 <SectionHeader title={subTab} onAdd={() => addItem([subTab === 'Умения' ? 'abilities' : subTab === 'Особенности' ? 'features' : 'traits'], {name: 'Новая запись', desc: ''})} />
@@ -581,8 +601,7 @@ const ResistanceDossier: React.FC = () => {
                                 })()}
                             </div>
                         )}
-
-                        {subTab === 'Владения' && (
+                         {subTab === 'Владения' && (
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 {[['armory', 'Оружие/Броня'], ['tools', 'Инструменты'], ['langs', 'Языки']].map(([key, label]) => (
                                     <div key={key} className="border border-[#1a5c0b] p-4">
@@ -602,8 +621,6 @@ const ResistanceDossier: React.FC = () => {
                         )}
                     </div>
                 )}
-
-                {/* --- GEAR TAB --- */}
                 {activeTab === 'gear' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="border border-[#1a5c0b] p-4 bg-[#0a100a]">
@@ -651,13 +668,17 @@ const ResistanceDossier: React.FC = () => {
                                         ))}
                                     </tbody>
                                 </table>
+                                <div className="mt-4 pt-4 border-t border-[#1a5c0b] text-center"> 
+                                    <h3 className="text-[#1a5c0b]">TOTAL (K-UNITS)</h3> 
+                                    <span className="text-2xl text-[#38ff12]"> 
+                                        {( (parseFloat(data.money.g as any)||0)*1000000 + (parseFloat(data.money.m as any)||0)*1000 + (parseFloat(data.money.k as any)||0) + (parseFloat(data.money.u as any)||0)/1000 ).toLocaleString('ru-RU', {minimumFractionDigits: 2})} K 
+                                    </span> 
+                                </div>
                             </div>
                         </div>
                     </div>
                 )}
-
-                {/* --- DATA TAB --- */}
-                {activeTab === 'data' && (
+                 {activeTab === 'data' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                          <div className="border border-[#1a5c0b] p-4 bg-[#0a100a]">
                             <SectionHeader title="Антропометрия" />
@@ -683,15 +704,13 @@ const ResistanceDossier: React.FC = () => {
                          </div>
                     </div>
                 )}
-
-                 {/* --- PSI TAB --- */}
+                 {/* ... Psionics same as Empire but styled, keeping existing logic ... */}
                  {activeTab === 'psi' && (
                      <div>
                         <div className="flex gap-2 mb-4">
                             <button onClick={() => setSubTab('default')} className={`px-4 py-1 border ${subTab==='default'?'border-[#38ff12] bg-[#38ff12]/20':'border-[#1a5c0b] text-[#1a5c0b]'}`}>Параметры</button>
                             <button onClick={() => setSubTab('spells')} className={`px-4 py-1 border ${subTab==='spells'?'border-[#38ff12] bg-[#38ff12]/20':'border-[#1a5c0b] text-[#1a5c0b]'}`}>Заклинания</button>
                         </div>
-
                         {subTab === 'default' && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="border border-[#1a5c0b] p-4 bg-[#0a100a]">
@@ -699,24 +718,13 @@ const ResistanceDossier: React.FC = () => {
                                     <div className="space-y-3">
                                         <div className="flex justify-between items-center">
                                             <span>База:</span> 
-                                            <select 
-                                                className="bg-[#051a05] text-[#38ff12] border border-[#1a5c0b]" 
-                                                value={data.psionics.base_attr} 
-                                                onChange={e => update(d => d.psionics.base_attr = e.target.value as any)}
-                                            >
-                                                <option value="int">INT (Интеллект)</option>
-                                                <option value="wis">WIS (Мудрость)</option>
-                                                <option value="cha">CHA (Харизма)</option>
+                                            <select className="bg-[#051a05] text-[#38ff12] border border-[#1a5c0b]" value={data.psionics.base_attr} onChange={e => update(d => d.psionics.base_attr = e.target.value as any)}>
+                                                <option value="int">INT (Интеллект)</option><option value="wis">WIS (Мудрость)</option><option value="cha">CHA (Харизма)</option>
                                             </select>
                                         </div>
-                                        <div className="flex justify-between items-center">
-                                            <span>Тип Псионики:</span> 
-                                            <span className="font-bold text-[#38ff12]">{psiTypeLabel}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span>Класс Псионики (2-{maxClassLvl}):</span> 
-                                            <span className="font-bold text-white text-lg">{psiClassLvl}</span>
-                                        </div>
+                                        {/* ... other psi stats unchanged ... */}
+                                        <div className="flex justify-between items-center"><span>Тип Псионики:</span> <span className="font-bold text-[#38ff12]">{psiTypeLabel}</span></div>
+                                        <div className="flex justify-between items-center"><span>Класс Псионики:</span> <span className="font-bold text-white text-lg">{psiClassLvl}</span></div>
                                         <div className="flex justify-between items-center">
                                             <span>Кастер Тип:</span> 
                                             <select className="bg-[#051a05] text-[#38ff12] border border-[#1a5c0b]" value={data.psionics.caster_type} onChange={e => update(d => d.psionics.caster_type = e.target.value as any)}><option value="1">Full (x1)</option><option value="0.5">Half (1/2)</option><option value="0.33">Third (1/3)</option></select>
@@ -741,17 +749,12 @@ const ResistanceDossier: React.FC = () => {
                                 </div>
                             </div>
                         )}
-
+                        {/* Spells list ... */}
                         {subTab === 'spells' && (
                              <div className="border border-[#1a5c0b] p-4 bg-[#0a100a] overflow-x-auto">
                                 <SectionHeader title="Матрица Заклинаний" onAdd={() => addItem(['psionics', 'spells'], {name: 'Новое', time: '1д', range: '18м', cost: 0, dur: 'Мгновенно'})} />
-                                
                                 {['ЗАГОВОРЫ', 'ЗАКЛИНАНИЯ'].map((section, idx) => {
-                                    const filtered = data.psionics.spells
-                                        .map((s, i) => ({s, i}))
-                                        .filter(o => idx === 0 ? o.s.cost === 0 : o.s.cost > 0)
-                                        .sort((a,b) => a.s.cost - b.s.cost);
-
+                                    const filtered = data.psionics.spells.map((s, i) => ({s, i})).filter(o => idx === 0 ? o.s.cost === 0 : o.s.cost > 0).sort((a,b) => a.s.cost - b.s.cost);
                                     return (
                                         <div key={section} className="mb-6 min-w-[500px]">
                                             <h4 className="text-[#1a5c0b] mb-2">{section}</h4>
@@ -794,14 +797,25 @@ const ResistanceDossier: React.FC = () => {
                             </div>
                         </div>
                         <div className="border border-[#1a5c0b] p-4 bg-[#0a100a]">
-                            <SectionHeader title="Таблица" onAdd={() => addItem(['universalis', 'custom_table'], {name: 'Entry', desc: ''})} />
+                             <div className="flex justify-between items-end border-b border-[#1a5c0b] pb-1 mb-4">
+                                <h3 className="font-tech text-lg text-white tracking-widest">Таблица</h3>
+                                <div className="flex gap-2">
+                                    <button onClick={() => addItem(['universalis', 'custom_table'], {name: 'Entry', desc: ''})} className="text-xs text-[#38ff12] hover:text-white border border-[#38ff12] px-2">[+ ENTRY]</button>
+                                    <button onClick={() => addItem(['universalis', 'custom_table'], {name: '---', isHeader: true})} className="text-xs text-white hover:text-[#38ff12] border border-white px-2">[+ GROUP]</button>
+                                </div>
+                             </div>
                             {data.universalis.custom_table.map((c, i) => (
-                                <div key={i} className="flex justify-between items-center mb-1 cursor-pointer" onClick={() => openEdit(['universalis', 'custom_table'], i)} data-list-path={JSON.stringify(['universalis', 'custom_table'])} data-index={i}>
+                                <div 
+                                    key={i} 
+                                    className={`flex justify-between items-center mb-1 ${c.isHeader ? 'mt-4 border-b border-[#38ff12] pb-1' : 'cursor-pointer hover:bg-[#38ff12]/5'} ${dragState?.active && dragState.itemIndex === i && dragState.listPathStr === JSON.stringify(['universalis', 'custom_table']) ? 'opacity-30' : 'opacity-100'}`} 
+                                    data-list-path={JSON.stringify(['universalis', 'custom_table'])}
+                                    data-index={i}
+                                >
                                     <div className="flex-1">
-                                        <div className="text-[#38ff12]">{c.name}</div>
-                                        {c.desc && <div className="text-xs text-[#1a5c0b] truncate">{c.desc}</div>}
+                                        <input className={`bg-transparent w-full text-[#38ff12] outline-none ${c.isHeader ? 'font-bold uppercase tracking-widest text-center' : ''}`} value={c.name} onChange={e => update(d => d.universalis.custom_table[i].name = e.target.value)} />
                                     </div>
-                                    <div className="flex">
+                                    <div className="flex items-center">
+                                        {!c.isHeader && <button onClick={() => openEdit(['universalis', 'custom_table'], i)} className="text-xs text-[#1a5c0b] hover:text-[#38ff12] mr-2">[DESC]</button>}
                                         <ResistanceDragHandle onMouseDown={(e) => handleDragStart(e, ['universalis', 'custom_table'], i, c.name)} onTouchStart={(e) => handleDragStart(e, ['universalis', 'custom_table'], i, c.name)} />
                                         <ResistanceDeleteBtn onClick={() => removeItem(['universalis', 'custom_table'], i)} />
                                     </div>
