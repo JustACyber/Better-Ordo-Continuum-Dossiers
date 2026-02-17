@@ -1,8 +1,10 @@
-#!/bin/bash
+[phases.setup]
+nixPkgs = ["dotnet-sdk_8"]
 
-# Переходим в папку с кодом
-cd Helper
+[phases.build]
+# Компилируем проект в папку "out" в корне
+cmds = ["dotnet publish Helper/Helper.csproj -c Release -o out"]
 
-# Запускаем бота (dotnet должен быть установлен через nixpacks.toml)
-echo "Starting Bot..."
-dotnet run --configuration Release
+[start]
+# Запускаем скрипт
+cmd = "bash start.sh"
