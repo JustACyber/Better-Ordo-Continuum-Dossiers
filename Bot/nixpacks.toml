@@ -2,9 +2,8 @@
 nixPkgs = ["dotnet-sdk_8", "icu", "zlib", "openssl"]
 
 [phases.build]
-# Собираем самодостаточный (self-contained) бинарник для Linux
-cmds = ["dotnet publish Helper/Helper.csproj -c Release -r linux-x64 --self-contained true -o out"]
+# Принудительно называем выходной файл "Bot" (/p:AssemblyName=Bot)
+cmds = ["dotnet publish Helper/Helper.csproj -c Release -r linux-x64 --self-contained true /p:AssemblyName=Bot -o out"]
 
 [start]
-# Запускаем скрипт
 cmd = "bash start.sh"
