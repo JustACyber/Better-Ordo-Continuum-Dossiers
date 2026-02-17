@@ -47,7 +47,7 @@ namespace Helper
 
         public async Task MainAsync()
         {
-            Console.WriteLine(">>> STARTING ORDO BOT V2.1 (FIXED)...");
+            Console.WriteLine(">>> STARTING ORDO BOT V2.2 (STABLE)...");
 
             string envPath = FindEnvFile();
             if (!string.IsNullOrEmpty(envPath)) Env.Load(envPath);
@@ -211,7 +211,6 @@ namespace Helper
                 }
                 else if (parts[1] == "add")
                 {
-                    // For MVP showing alert.
                     await e.Interaction.CreateFollowupMessageAsync(new DiscordFollowupMessageBuilder().WithContent("⚠️ Item Addition via Discord is limited in this version.").AsEphemeral(true));
                     return;
                 }
@@ -246,10 +245,22 @@ namespace Helper
             switch (state.CurrentTab)
             {
                 case "identity":
-                    embed.WithDescription($"**ID:** {state.CharId}\n**Rank:** {FirestoreHelper.GetField(data, "meta.mapValue.fields.rank")}");
-                    embed.AddField("Bio", $"{FirestoreHelper.GetField(data, "meta.mapValue.fields.race")} {FirestoreHelper.GetField(data, "meta.mapValue.fields.class")}", true);
-                    embed.AddField("Archetype", FirestoreHelper.GetField(data, "meta.mapValue.fields.archetype") ?? "N/A", true);
+                    var rank = FirestoreHelper.GetField(data, "meta.mapValue.fields.rank") ?? "Unranked";
+                    embed.WithDescription($"**ID:** {state.CharId}\n**Rank:** {rank}");
+                    
+                    var race = FirestoreHelper.GetField(data, "meta.mapValue.fields.race") ?? "";
+                    var cls = FirestoreHelper.GetField(data, "meta.mapValue.fields.class") ?? "";
+                    var bio = $"{race} {cls}".Trim();
+                    if (string.IsNullOrWhiteSpace(bio)) bio = "Classified";
+
+                    var arch = FirestoreHelper.GetField(data, "meta.mapValue.fields.archetype");
+                    if (string.IsNullOrWhiteSpace(arch)) arch = "N/A";
+
                     var analysis = FirestoreHelper.GetField(data, "psych.mapValue.fields.analysis") ?? "N/A";
+                    if (string.IsNullOrWhiteSpace(analysis)) analysis = "N/A";
+                    
+                    embed.AddField("Bio", bio, true);
+                    embed.AddField("Archetype", arch, true);
                     embed.AddField("Analysis", analysis.Substring(0, Math.Min(500, analysis.Length)), false);
                     break;
 
@@ -266,12 +277,12 @@ namespace Helper
                     var attrStr = "";
                     foreach(var a in attrs)
                     {
-                        // FIX: Removed .integerValue suffix here, GetField handles extraction
                         var valStr = FirestoreHelper.GetField(data, $"stats.mapValue.fields.{a}") ?? "10";
-                        var val = int.Parse(valStr);
+                        var val = int.TryParse(valStr, out int v) ? v : 10;
                         var mod = (val - 10) / 2;
                         attrStr += $"**{a.ToUpper()}:** {val} ({(mod>=0?"+":"")}{mod})\n";
                     }
+                    if (string.IsNullOrWhiteSpace(attrStr)) attrStr = "N/A";
                     embed.AddField("ATTRIBUTES", attrStr, false);
                     break;
 
@@ -285,7 +296,9 @@ namespace Helper
                          var dmg = w["mapValue"]?["fields"]?["dmg"]?["stringValue"]?.ToString() ?? "";
                          sbW.AppendLine($"• **{wn}** {dmg}");
                     }
-                    embed.AddField("WEAPONS", sbW.ToString());
+                    var wStr = sbW.ToString().Trim();
+                    if (string.IsNullOrWhiteSpace(wStr)) wStr = "No weapons.";
+                    embed.AddField("WEAPONS", wStr);
 
                     var inv = FirestoreHelper.GetArray(data, "combat.mapValue.fields.inventory");
                     var sbI = new StringBuilder();
@@ -297,7 +310,9 @@ namespace Helper
                         var iname = i["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString() ?? "Item";
                         sbI.AppendLine($"• {iname}");
                     }
-                    embed.AddField("INVENTORY", sbI.ToString());
+                    var iStr = sbI.ToString().Trim();
+                    if (string.IsNullOrWhiteSpace(iStr)) iStr = "Empty.";
+                    embed.AddField("INVENTORY", iStr);
                     break;
 
                 case "features":
@@ -308,8 +323,9 @@ namespace Helper
                         var fn = f["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString() ?? "Feat";
                         sbF.AppendLine($"• {fn}");
                     }
-                    if(sbF.Length == 0) sbF.Append("No registered features.");
-                    embed.AddField("FEATURES / ABILITIES", sbF.ToString());
+                    var fStr = sbF.ToString().Trim();
+                    if (string.IsNullOrWhiteSpace(fStr)) fStr = "No registered features.";
+                    embed.AddField("FEATURES / ABILITIES", fStr);
                     break;
             }
 
@@ -347,7 +363,8 @@ namespace Helper
                 foreach (var item in targetArray.Take(25)) // Discord limit 25
                 {
                     var iName = item["mapValue"]?["fields"]?["name"]?["stringValue"]?.ToString();
-                    if (!string.IsNullOrEmpty(iName))
+                    // Ensure Option Label/Value is not empty
+                    if (!string.IsNullOrWhiteSpace(iName))
                     {
                         options.Add(new DiscordSelectComponentOption(iName, iName)); 
                     }
