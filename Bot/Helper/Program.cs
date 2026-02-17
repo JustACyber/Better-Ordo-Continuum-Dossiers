@@ -29,7 +29,8 @@ namespace Helper
         public string CurrentTab { get; set; } = "identity";
     }
 
-    class Program
+    // FIX: Added 'partial' modifier here
+    partial class Program
     {
         public static Dictionary<ulong, UserState> ActiveSessions = new Dictionary<ulong, UserState>();
         public static readonly HttpClient HttpClient = new HttpClient();
@@ -53,7 +54,7 @@ namespace Helper
 
         public async Task MainAsync()
         {
-            Console.WriteLine(">>> STARTING ORDO BOT V3.0 (FULL SYNC)...");
+            Console.WriteLine(">>> STARTING ORDO BOT V3.1 (BUILD FIX)...");
 
             string envPath = FindEnvFile();
             if (!string.IsNullOrEmpty(envPath)) Env.Load(envPath);
@@ -842,7 +843,8 @@ namespace Helper
     }
 
     // Shared Logic
-    public static partial class Program 
+    // FIX: Removed 'static', kept 'partial'
+    public partial class Program 
     {
         public static async Task ProcessDossierRequest(DiscordClient client, DiscordChannel channel, DiscordUser user, string input, Func<DiscordWebhookBuilder, Task<DiscordMessage>> sendFunc)
         {
