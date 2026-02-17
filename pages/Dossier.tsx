@@ -411,15 +411,11 @@ const Dossier: React.FC = () => {
                            <div className="w-full bg-[rgba(20,20,20,0.8)] h-2 mt-2 relative border border-gray-700 overflow-hidden"> <div className="h-full bg-blue-500 transition-all" style={{width: `${Math.min(100, (data.stats.shield_curr / (data.stats.shield_max || 1)) * 100)}%`}}></div> </div>
                         </div>
                         <div className="text-center">
-                           <div className="text-ordo-gold-dim italic mb-2">Мобильность</div>
                            <div className="flex flex-col gap-2 items-center">
+                                <div className="text-ordo-gold-dim italic mb-2">Мобильность</div>
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm text-ordo-gold-dim">База:</span>
-                                    <EmpireNumberInput step={1.5} min={0} className="w-16 bg-transparent border-b border-white text-white text-center font-bold" value={data.stats.speed} onChange={e => update(d => d.stats.speed = parseFloat(e.target.value))} />
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm text-ordo-gold-dim">Рывки:</span>
-                                    <EmpireNumberInput step={1} min={0} className="w-16 bg-transparent border-b border-white text-white text-center font-bold" value={data.stats.dashes} onChange={e => update(d => d.stats.dashes = parseInt(e.target.value))} />
+                                    <EmpireNumberInput readOnly step={1.5} min={0} className="w-16 bg-transparent border-b border-white text-white text-center font-bold cursor-default focus:border-white" value={data.stats.speed} onChange={e => update(d => d.stats.speed = parseFloat(e.target.value))} />
                                 </div>
                            </div>
                         </div>
