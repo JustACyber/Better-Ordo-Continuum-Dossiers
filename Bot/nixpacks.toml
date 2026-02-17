@@ -1,10 +1,11 @@
 [phases.setup]
 nixPkgs = ["dotnet-sdk_8", "icu", "zlib", "openssl"]
 
-# Оставляем build команду здесь для порядка, но start.sh теперь подстрахует нас,
-# если Railway решит пропустить эту фазу.
 [phases.build]
-cmds = ["dotnet publish Helper/Helper.csproj -c Release -r linux-x64 --self-contained true /p:AssemblyName=Bot -o published"]
+# Принудительная сборка в папку 'out'. 
+# Важно: self-contained true создает бинарник, которому не нужен dotnet runtime для запуска.
+cmds = ["dotnet publish Helper/Helper.csproj -c Release -r linux-x64 --self-contained true /p:AssemblyName=Bot -o out"]
 
 [start]
+# Запускаем скрипт, который проверит файлы и стартанет бота
 cmd = "bash start.sh"
