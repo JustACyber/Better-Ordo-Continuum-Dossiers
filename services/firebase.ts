@@ -1,5 +1,5 @@
 
-import * as firebaseApp from 'firebase/app';
+import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, 
   collection, 
@@ -28,7 +28,7 @@ const firebaseConfig = {
   measurementId: "G-7CGN7MPC4G"
 };
 
-const app = firebaseApp.initializeApp(firebaseConfig);
+const app = initializeApp(firebaseConfig);
 const auth: Auth = getAuth(app);
 const db: Firestore = getFirestore(app);
 
