@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DSharpPlus;
 using DSharpPlus.CommandsNext;
@@ -53,7 +54,7 @@ namespace Helper
 
         public async Task MainAsync()
         {
-            Console.WriteLine(">>> STARTING ORDO BOT V3.5 (DB MASK FIX)...");
+            Console.WriteLine(">>> STARTING ORDO BOT V3.6 (DELETE & SYNC)...");
 
             string envPath = FindEnvFile();
             if (!string.IsNullOrEmpty(envPath)) Env.Load(envPath);
@@ -106,14 +107,75 @@ namespace Helper
             
             try 
             {
-                // TABS
+                // --- TAB SWITCHING (AUTO-UPDATE LOGIC) ---
                 if (e.Id.StartsWith("tab_"))
                 {
+                    await e.Interaction.DeferAsync(); // Acknowledge first
+
+                    // 1. RE-FETCH DATA FROM DB
+                    var (freshData, _) = await FirestoreHelper.FetchProtocolData(state.CharId);
+                    if (freshData != null) state.Data = freshData; // Update local state
+
                     state.CurrentTab = e.Id.Replace("tab_", "");
-                    var (embed, components) = BuildInterface(state);
-                    await e.Interaction.CreateResponseAsync(InteractionResponseType.UpdateMessage, new DiscordInteractionResponseBuilder().AddEmbed(embed).AddComponents(components));
+                    
+                    var (embed, components, attachment) = BuildInterface(state);
+                    
+                    var builder = new DiscordWebhookBuilder().AddEmbed(embed).AddComponents(components);
+                    if (attachment != null)
+                    {
+                        builder.AddFile("profile.png", attachment);
+                        // Close stream after sending? D#+ handles it usually, but we use 'using' inside builder if possible.
+                        // Here we pass the stream, it will be disposed by the caller or GC.
+                    }
+
+                    await e.Interaction.EditOriginalResponseAsync(builder);
                 }
-                // BUTTONS
+                // --- DELETE FLOW ---
+                else if (e.Id == "btn_delete_mode")
+                {
+                    // Generate a dropdown for deletion based on current tab
+                    var options = GetInspectOptions(state);
+                    if (options.Count == 0)
+                    {
+                        await e.Interaction.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, new DiscordInteractionResponseBuilder().WithContent("⚠️ Nothing to delete in this tab.").AsEphemeral(true));
+                        return;
+                    }
+
+                    var dropdown = new DiscordSelectComponent("menu_delete", "Select item to PERMANENTLY DELETE...", options.Take(25).ToList());
+                    await e.Interaction.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, new DiscordInteractionResponseBuilder().WithContent("⚠️ **DELETION MODE**\nSelect an item below to remove it from the database.").AddComponents(new DiscordActionRowComponent(dropdown)).AsEphemeral(true));
+                }
+                else if (e.Id == "menu_delete")
+                {
+                    var selectedId = e.Values.FirstOrDefault(); // Format: type:index
+                    if (selectedId != null)
+                    {
+                        await e.Interaction.DeferAsync(ephemeral: true); // Processing...
+
+                        var parts = selectedId.Split(':');
+                        var type = parts[0];
+                        var index = int.Parse(parts[1]);
+
+                        string path = FirestoreHelper.GetPathByType(type);
+                        
+                        // 1. Modify local object
+                        FirestoreHelper.RemoveItemFromArray(state.Data, path, index);
+
+                        // 2. Sync to DB
+                        await FirestoreHelper.SyncArray(state.CharId, state.IsResistance, state.Data, path);
+
+                        // 3. Rebuild UI
+                        var (embed, components, attachment) = BuildInterface(state);
+                        var builder = new DiscordWebhookBuilder().AddEmbed(embed).AddComponents(components);
+                        if (attachment != null) builder.AddFile("profile.png", attachment);
+
+                        // Update the MAIN message (not the ephemeral one)
+                        await e.Message.ModifyAsync(new DiscordMessageBuilder().AddEmbed(embed).AddComponents(components));
+                        
+                        // Reply to ephemeral
+                        await e.Interaction.EditOriginalResponseAsync(new DiscordWebhookBuilder().WithContent($"✅ Item deleted."));
+                    }
+                }
+                // --- OTHER BUTTONS ---
                 else if (e.Id == "btn_edit_vitals")
                 {
                     var hp = FirestoreHelper.GetField(state.Data, "stats.mapValue.fields.hp_curr") ?? "0";
@@ -249,7 +311,9 @@ namespace Helper
                         fields["props"] = new JObject { ["stringValue"] = "" };
                     } 
                     else if (type.Contains("feat") || type.Contains("trait") || type.Contains("feature")) {
-                        path = "features";
+                        path = "features"; // Default to features if generic
+                        if (type.Contains("trait")) path = "traits";
+                        if (type.Contains("ability")) path = "abilities";
                         fields["desc"] = new JObject { ["stringValue"] = desc };
                     }
                     else if (type.Contains("counter")) {
@@ -272,8 +336,11 @@ namespace Helper
                     await FirestoreHelper.SyncArray(state.CharId, state.IsResistance, state.Data, path);
                 }
 
-                var (embed, components) = BuildInterface(state);
-                await e.Interaction.EditOriginalResponseAsync(new DiscordWebhookBuilder().AddEmbed(embed).AddComponents(components));
+                var (embed, components, attachment) = BuildInterface(state);
+                var builder = new DiscordWebhookBuilder().AddEmbed(embed).AddComponents(components);
+                if (attachment != null) builder.AddFile("profile.png", attachment);
+                
+                await e.Interaction.EditOriginalResponseAsync(builder);
             }
             catch (Exception ex)
             {
@@ -283,7 +350,7 @@ namespace Helper
         }
 
         // --- UI BUILDER ---
-        public static (DiscordEmbed, List<DiscordActionRowComponent>) BuildInterface(UserState state)
+        public static (DiscordEmbed, List<DiscordActionRowComponent>, MemoryStream?) BuildInterface(UserState state)
         {
             var data = state.Data;
             bool isRes = state.IsResistance;
@@ -292,12 +359,35 @@ namespace Helper
             var btnStyle = isRes ? ButtonStyle.Success : ButtonStyle.Primary;
 
             var name = FirestoreHelper.GetField(data, "meta.mapValue.fields.name") ?? "Unknown";
-            var img = FirestoreHelper.GetField(data, "meta.mapValue.fields.image");
+            var imgStr = FirestoreHelper.GetField(data, "meta.mapValue.fields.image");
+            MemoryStream imgStream = null;
             
             var embed = new DiscordEmbedBuilder()
                 .WithTitle(isRes ? $"// {name.ToUpper()}" : $"PROTOCOL: {name.ToUpper()}")
                 .WithColor(color);
-            if (!string.IsNullOrEmpty(img) && img.StartsWith("http")) embed.WithThumbnail(img);
+
+            // Handle Image (Base64 or URL)
+            if (!string.IsNullOrEmpty(imgStr))
+            {
+                if (imgStr.StartsWith("http"))
+                {
+                    embed.WithThumbnail(imgStr);
+                }
+                else if (imgStr.StartsWith("data:image"))
+                {
+                    try
+                    {
+                        var base64Data = imgStr.Split(',')[1];
+                        var bytes = Convert.FromBase64String(base64Data);
+                        imgStream = new MemoryStream(bytes);
+                        embed.WithThumbnail("attachment://profile.png");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Image conversion failed: " + ex.Message);
+                    }
+                }
+            }
 
             int level = int.Parse(FirestoreHelper.GetField(data, "meta.mapValue.fields.level") ?? "1");
             int pb = 2 + (level - 1) / 4;
@@ -483,39 +573,12 @@ namespace Helper
             if(state.CurrentTab == "psi") actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_edit_psi", "Edit Points"));
             if(state.CurrentTab == "univ") actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_edit_counters", "Set Counter"));
             
-            actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_add_item", "+ Add Item/Entry"));
+            actions.Add(new DiscordButtonComponent(ButtonStyle.Secondary, "btn_add_item", "+ Add Item"));
+            actions.Add(new DiscordButtonComponent(ButtonStyle.Danger, "btn_delete_mode", "Delete Item")); // ADDED DELETE BUTTON
             rows.Add(new DiscordActionRowComponent(actions));
 
             // Row 4: Inspect
-            var options = new List<DiscordSelectComponentOption>();
-            string listPath = "";
-            string typePrefix = "";
-
-            if (state.CurrentTab == "gear") { 
-                listPath = "combat.mapValue.fields.weapons"; 
-                typePrefix = "weapon"; 
-            }
-            else if (state.CurrentTab == "feats") { listPath = "features"; typePrefix = "feat"; }
-            else if (state.CurrentTab == "psi") { listPath = "psionics.mapValue.fields.spells"; typePrefix = "spell"; }
-            else if (state.CurrentTab == "univ") { listPath = "universalis.mapValue.fields.custom_table"; typePrefix = "registry"; }
-
-            if (!string.IsNullOrEmpty(listPath))
-            {
-                if (state.CurrentTab == "feats")
-                {
-                    AddOptions(options, data, "features", "feat");
-                    AddOptions(options, data, "abilities", "ability", options.Count);
-                    AddOptions(options, data, "traits", "trait", options.Count);
-                }
-                else
-                {
-                    AddOptions(options, data, listPath, typePrefix);
-                }
-            }
-            
-            if (state.CurrentTab == "gear") {
-                AddOptions(options, data, "combat.mapValue.fields.inventory", "inventory", options.Count);
-            }
+            var options = GetInspectOptions(state);
 
             if (options.Count > 0)
             {
@@ -524,7 +587,31 @@ namespace Helper
                 }));
             }
 
-            return (embed.Build(), rows);
+            return (embed.Build(), rows, imgStream);
+        }
+
+        // Logic refactored to share between Inspect and Delete
+        private static List<DiscordSelectComponentOption> GetInspectOptions(UserState state)
+        {
+            var options = new List<DiscordSelectComponentOption>();
+            var data = state.Data;
+            
+            if (state.CurrentTab == "gear") { 
+                AddOptions(options, data, "combat.mapValue.fields.weapons", "weapon"); 
+                AddOptions(options, data, "combat.mapValue.fields.inventory", "inventory", options.Count);
+            }
+            else if (state.CurrentTab == "feats") { 
+                AddOptions(options, data, "features", "feat");
+                AddOptions(options, data, "abilities", "ability", options.Count);
+                AddOptions(options, data, "traits", "trait", options.Count);
+            }
+            else if (state.CurrentTab == "psi") { AddOptions(options, data, "psionics.mapValue.fields.spells", "spell"); }
+            else if (state.CurrentTab == "univ") { 
+                AddOptions(options, data, "universalis.mapValue.fields.custom_table", "registry");
+                AddOptions(options, data, "universalis.mapValue.fields.counters", "counter", options.Count);
+            }
+            
+            return options;
         }
 
         private static void AddOptions(List<DiscordSelectComponentOption> opts, JObject data, string path, string prefix, int offset = 0)
@@ -590,8 +677,11 @@ namespace Helper
                 return;
             }
 
-            var (embed, components) = Program.BuildInterface(state);
-            var msg = await ctx.EditResponseAsync(new DiscordWebhookBuilder().AddEmbed(embed).AddComponents(components));
+            var (embed, components, attachment) = Program.BuildInterface(state);
+            var builder = new DiscordWebhookBuilder().AddEmbed(embed).AddComponents(components);
+            if(attachment != null) builder.AddFile("profile.png", attachment);
+
+            var msg = await ctx.EditResponseAsync(builder);
             
             if (Program.ActiveSessions.ContainsKey(msg.Id)) Program.ActiveSessions.Remove(msg.Id);
             Program.ActiveSessions.Add(msg.Id, state);
@@ -612,8 +702,11 @@ namespace Helper
                 return;
             }
 
-            var (embed, components) = Program.BuildInterface(state);
-            var msg = await ctx.RespondAsync(new DiscordMessageBuilder().AddEmbed(embed).AddComponents(components));
+            var (embed, components, attachment) = Program.BuildInterface(state);
+            var builder = new DiscordMessageBuilder().AddEmbed(embed).AddComponents(components);
+            if(attachment != null) builder.AddFile("profile.png", attachment);
+
+            var msg = await ctx.RespondAsync(builder);
             
             if (Program.ActiveSessions.ContainsKey(msg.Id)) Program.ActiveSessions.Remove(msg.Id);
             Program.ActiveSessions.Add(msg.Id, state);
@@ -636,6 +729,19 @@ namespace Helper
                        .Replace(".mapValue.fields", ""); 
                        
             return path;
+        }
+
+        public static string GetPathByType(string type)
+        {
+            if (type == "weapon") return "combat.mapValue.fields.weapons";
+            if (type == "inventory") return "combat.mapValue.fields.inventory";
+            if (type == "spell") return "psionics.mapValue.fields.spells";
+            if (type == "registry") return "universalis.mapValue.fields.custom_table";
+            if (type == "counter") return "universalis.mapValue.fields.counters";
+            if (type == "feat") return "features";
+            if (type == "ability") return "abilities";
+            if (type == "trait") return "traits";
+            return "";
         }
 
         public static string GetField(JObject root, string path)
@@ -671,6 +777,15 @@ namespace Helper
                 if (current == null) return new JArray();
             }
             return (JArray)(current["arrayValue"]?["values"]) ?? new JArray();
+        }
+
+        public static void RemoveItemFromArray(JObject root, string path, int index)
+        {
+            var arr = GetArray(root, path);
+            if (index >= 0 && index < arr.Count)
+            {
+                arr.RemoveAt(index);
+            }
         }
 
         public static (bool isProf, bool isExp, int bonus) GetSkillState(JObject data, string skill)
@@ -737,16 +852,7 @@ namespace Helper
 
         public static string GetItemDescription(JObject data, string type, int index)
         {
-            string path = "";
-
-            if (type == "weapon") path = "combat.mapValue.fields.weapons";
-            else if (type == "inventory") path = "combat.mapValue.fields.inventory"; 
-            else if (type == "spell") path = "psionics.mapValue.fields.spells";
-            else if (type == "registry") path = "universalis.mapValue.fields.custom_table";
-            else if (type == "feat") path = "features";
-            else if (type == "ability") path = "abilities";
-            else if (type == "trait") path = "traits";
-
+            string path = GetPathByType(type);
             var arr = GetArray(data, path);
             if (index >= arr.Count) return "Item not found (Index mismatch).";
 
@@ -763,6 +869,9 @@ namespace Helper
             else if (type == "spell") {
                 sb.AppendLine($"Time: {item["time"]?["stringValue"]} | Range: {item["range"]?["stringValue"]}");
                 sb.AppendLine($"Dur: {item["dur"]?["stringValue"]} | Cost: {item["cost"]?["integerValue"] ?? item["cost"]?["stringValue"]}");
+            }
+            else if (type == "counter") {
+                sb.AppendLine($"Val: {item["val"]?["integerValue"]} / {item["max"]?["integerValue"]}");
             }
             
             var desc = item["desc"]?["stringValue"]?.ToString();
